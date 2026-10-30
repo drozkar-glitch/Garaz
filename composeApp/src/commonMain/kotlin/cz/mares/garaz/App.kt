@@ -112,10 +112,10 @@ fun App() {
     var subfolderForCustomPart by remember { mutableStateOf<Pair<CategoryDef, SubfolderDef>?>(null) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
 
-    // Automaticka kontrola tydenni zalohy na OneDrive pri spusteni aplikace
+    // Automaticka kontrola tydenni zalohy na Google Drive pri spusteni aplikace
     LaunchedEffect(Unit) {
         if (GarageStorage.checkAndRunWeeklyBackupIfDue(vehicles)) {
-            statusBanner = "☁️ Týdenní záloha na OneDrive byla automaticky aktualizována."
+            statusBanner = "☁️ Týdenní záloha na Google Drive byla automaticky aktualizována."
         }
     }
 
@@ -123,7 +123,7 @@ fun App() {
         vehicles = newList
         GarageStorage.saveVehicles(newList)
         if (GarageStorage.checkAndRunWeeklyBackupIfDue(newList)) {
-            statusBanner = "☁️ Týdenní záloha na OneDrive byla automaticky aktualizována."
+            statusBanner = "☁️ Týdenní záloha na Google Drive byla automaticky aktualizována."
         }
     }
 
@@ -2018,7 +2018,7 @@ private fun SettingsAndBackupDialog(
 ) {
     val p = LocalGaragePalette.current
     var apiKey by remember { mutableStateOf(GarageStorage.loadApiKey()) }
-    var oneDriveUri by remember { mutableStateOf(GarageStorage.loadOneDriveUri()) }
+    var cloudUri by remember { mutableStateOf(GarageStorage.loadOneDriveUri()) }
     var weeklyEnabled by remember { mutableStateOf(GarageStorage.isWeeklyBackupEnabled()) }
     var lastBackupDate by remember { mutableStateOf(GarageStorage.loadLastBackupDate()) }
     var backupText by remember { mutableStateOf("") }
@@ -2049,8 +2049,8 @@ private fun SettingsAndBackupDialog(
 
             HorizontalDivider(color = p.border)
 
-            // Sekce OneDrive automaticke tydenni zalohy
-            Text("☁️ Automatická týdenní záloha (OneDrive / Soubory):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            // Sekce Google Drive automaticke tydenni zalohy
+            Text("☁️ Automatická týdenní záloha (Google Drive / Cloud):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2067,14 +2067,14 @@ private fun SettingsAndBackupDialog(
             }
 
             Text(
-                text = if (oneDriveUri.isNotBlank()) {
-                    "Propojený soubor: ✓ Nastaveno\nPoslední záloha na OneDrive: $lastBackupDate"
+                text = if (cloudUri.isNotBlank()) {
+                    "Propojený soubor: ✓ Nastaveno (Google Drive)\nPoslední záloha: $lastBackupDate"
                 } else {
-                    "Zatím není vybraný záložní soubor ve složce OneDrive."
+                    "Zatím není vybraný záložní soubor na Google Drive."
                 },
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
-                color = if (oneDriveUri.isNotBlank()) p.greenOk else p.textMuted
+                color = if (cloudUri.isNotBlank()) p.greenOk else p.textMuted
             )
 
             Button(
@@ -2083,10 +2083,10 @@ private fun SettingsAndBackupDialog(
                     GaragePlatform.selectBackupFileForSave("garaz_zaloha.txt", content) { selectedUri ->
                         if (!selectedUri.isNullOrBlank()) {
                             GarageStorage.saveOneDriveUri(selectedUri)
-                            oneDriveUri = selectedUri
+                            cloudUri = selectedUri
                             GarageStorage.triggerImmediateOneDriveBackup(vehicles)
                             lastBackupDate = GarageStorage.loadLastBackupDate()
-                            infoMsg = "✓ Záložní soubor na OneDrivu byl nastaven a rovnou uložen."
+                            infoMsg = "✓ Záložní soubor na Google Drive byl nastaven a uložen."
                         }
                     }
                 },
@@ -2094,7 +2094,7 @@ private fun SettingsAndBackupDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = p.accent)
             ) {
                 Text(
-                    text = if (oneDriveUri.isBlank()) "📂 Vybrat / Vytvořit soubor ve složce OneDrive" else "📂 Změnit záložní soubor na OneDrivu",
+                    text = if (cloudUri.isBlank()) "📂 Vybrat / Vytvořit zálohu na Google Drive" else "📂 Změnit záložní soubor na Google Drive",
                     color = p.onAccent,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp
@@ -2106,12 +2106,12 @@ private fun SettingsAndBackupDialog(
                     onClick = {
                         if (GarageStorage.triggerImmediateOneDriveBackup(vehicles)) {
                             lastBackupDate = GarageStorage.loadLastBackupDate()
-                            infoMsg = "✓ Záloha byla okamžitě zapsána do souboru na OneDrivu."
+                            infoMsg = "✓ Záloha byla okamžitě zapsána na Google Drive."
                         } else {
                             infoMsg = "Nejprve vyber cílový soubor tlačítkem výše."
                         }
                     },
-                    enabled = oneDriveUri.isNotBlank(),
+                    enabled = cloudUri.isNotBlank(),
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
@@ -2126,7 +2126,7 @@ private fun SettingsAndBackupDialog(
                                 if (parsed.isNotEmpty()) {
                                     if (!openedUri.isNullOrBlank()) {
                                         GarageStorage.saveOneDriveUri(openedUri)
-                                        oneDriveUri = openedUri
+                                        cloudUri = openedUri
                                     }
                                     onRestoreVehicles(parsed)
                                 } else {

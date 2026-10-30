@@ -77,8 +77,14 @@ actual object GaragePlatform {
         val ctx = GaragePlatformInit.appContext ?: return false
         return try {
             val uri = Uri.parse(uriString)
-            ctx.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-                out.write(content.toByteArray(Charsets.UTF_8))
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val stream = try {
+                ctx.contentResolver.openOutputStream(uri, "rwt")
+            } catch (_: Exception) {
+                ctx.contentResolver.openOutputStream(uri)
+            }
+            stream?.use { out ->
+                out.write(bytes)
                 out.flush()
             } ?: return false
             true
