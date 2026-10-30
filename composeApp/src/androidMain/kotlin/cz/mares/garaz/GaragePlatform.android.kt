@@ -62,6 +62,17 @@ actual object GaragePlatform {
         cm?.setPrimaryClip(ClipData.newPlainText("GarazBackup", text))
     }
 
+    actual fun openUrlInBrowser(url: String) {
+        val ctx = GaragePlatformInit.appContext ?: return
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
     actual fun showServiceNotification(title: String, message: String) {
         val ctx = GaragePlatformInit.appContext ?: return
         try {

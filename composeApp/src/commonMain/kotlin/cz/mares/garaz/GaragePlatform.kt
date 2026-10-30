@@ -6,6 +6,7 @@ expect object GaragePlatform {
     fun currentDateString(): String
     fun currentTimeMillis(): Long
     fun copyToClipboard(text: String)
+    fun openUrlInBrowser(url: String)
     fun showServiceNotification(title: String, message: String)
     fun selectBackupFileForSave(suggestedName: String, initialContent: String, onResult: (String?) -> Unit)
     fun selectBackupFileForOpen(onResult: (uri: String?, content: String?) -> Unit)

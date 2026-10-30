@@ -19,6 +19,7 @@ import platform.Foundation.setValue
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.writeToFile
+import platform.UIKit.UIApplication
 import platform.UIKit.UIPasteboard
 import platform.UserNotifications.UNAuthorizationOptionAlert
 import platform.UserNotifications.UNAuthorizationOptionSound
@@ -50,6 +51,11 @@ actual object GaragePlatform {
 
     actual fun copyToClipboard(text: String) {
         UIPasteboard.generalPasteboard.string = text
+    }
+
+    actual fun openUrlInBrowser(url: String) {
+        val nsUrl = NSURL.URLWithString(url) ?: return
+        UIApplication.sharedApplication.openURL(nsUrl)
     }
 
     actual fun showServiceNotification(title: String, message: String) {

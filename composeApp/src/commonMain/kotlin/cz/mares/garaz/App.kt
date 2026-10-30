@@ -263,6 +263,7 @@ fun App() {
                         val isSel = car.id == currentVehicle?.id
                         val carAlerts = remember(car) { computeAlertsForVehicle(car) }
                         val hasOverdue = carAlerts.any { it.remainingKm < 0 }
+                        val carCyls = remember(car) { GarageCatalog.detectCylinderCount(car) }
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
@@ -302,7 +303,7 @@ fun App() {
                                     }
                                 }
                                 Text(
-                                    text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "VIN" }}",
+                                    text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "${carCyls}vál." }}",
                                     fontSize = 11.sp,
                                     lineHeight = 14.sp,
                                     maxLines = 1,
@@ -409,7 +410,7 @@ fun App() {
                                     onValueChange = { searchQuery = it },
                                     placeholder = {
                                         Text(
-                                            "Hledat díl (čep, tlumič, olej, vstřik...)",
+                                            "Hledat díl nebo OEM / MANN číslo (olej, HU 7020, 03N...)",
                                             fontSize = 13.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -448,11 +449,17 @@ fun App() {
                         if (searchQuery.isNotBlank() || filterMode != 0) {
                             val alertPartIds = currentVehicleAlerts.map { it.part.id }.toSet()
                             val normQuery = GarageCatalog.removeDiacritics(searchQuery.trim().lowercase())
+                            val normQueryNoSpaces = normQuery.replace(" ", "")
                             val filteredParts = allParts.filter { part ->
                                 val matchesSearch = if (normQuery.isBlank()) true else {
                                     val pName = GarageCatalog.removeDiacritics(part.name.lowercase())
                                     val sName = GarageCatalog.removeDiacritics(part.subfolderName.lowercase())
-                                    pName.contains(normQuery) || sName.contains(normQuery)
+                                    val specNorm = GarageCatalog.removeDiacritics(part.specHint.lowercase())
+                                    val specNoSpaces = specNorm.replace(" ", "")
+                                    pName.contains(normQuery) ||
+                                        sName.contains(normQuery) ||
+                                        specNorm.contains(normQuery) ||
+                                        (normQueryNoSpaces.length >= 3 && specNoSpaces.contains(normQueryNoSpaces))
                                 }
                                 val matchesFilter = when (filterMode) {
                                     1 -> replacedPartIds.contains(part.id)
@@ -707,17 +714,21 @@ fun App() {
                 CatalogPartsPickerDialog(
                     category = fetchTarget.first,
                     subfolder = fetchTarget.second,
+                    vehicle = currentVehicle,
                     existingParts = GarageCatalog.allPartsForVehicle(currentVehicle),
                     onDismiss = { subfolderForCatalogFetch = null },
                     onAddSelectedParts = { partNames, markImmediately ->
-                        val createdParts = partNames.map { pName ->
+                        val createdParts = partNames.map { rawEntry ->
+                            val codeBracket = Regex("""\[(.*?)\]""").find(rawEntry)?.groupValues?.getOrNull(1)?.trim() ?: ""
+                            val cleanTitle = rawEntry.replace(Regex("""\s*\[.*?\]"""), "").trim()
                             PartItem(
                                 id = "cust_${Random.nextInt(100000, 999999)}",
                                 categoryId = fetchTarget.first.id,
                                 categoryName = fetchTarget.first.title,
                                 subfolderId = fetchTarget.second.id,
                                 subfolderName = fetchTarget.second.title,
-                                name = pName,
+                                name = cleanTitle.ifBlank { rawEntry },
+                                specHint = codeBracket,
                                 isCustom = true
                             )
                         }
@@ -728,7 +739,7 @@ fun App() {
                                     partId = cp.id,
                                     date = GaragePlatform.currentDateString(),
                                     mileageKm = currentVehicle.currentMileageKm,
-                                    brandOrSpec = "",
+                                    brandOrSpec = cp.specHint,
                                     note = "Označeno při načtení z katalogu"
                                 )
                             }
@@ -771,7 +782,8 @@ fun App() {
                                     id = "rec_${Random.nextInt(100000, 999999)}",
                                     partId = newPart.id,
                                     date = GaragePlatform.currentDateString(),
-                                    mileageKm = currentVehicle.currentMileageKm
+                                    mileageKm = currentVehicle.currentMileageKm,
+                                    brandOrSpec = spec
                                 )
                             )
                         } else emptyList()
@@ -917,6 +929,8 @@ private fun VehicleSummaryCard(
     onSmartParseClick: () -> Unit
 ) {
     val p = LocalGaragePalette.current
+    val cylCount = remember(vehicle) { GarageCatalog.detectCylinderCount(vehicle) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -962,7 +976,7 @@ private fun VehicleSummaryCard(
         }
 
         Text(
-            text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }} • STK do: ${vehicle.stkUntil.ifBlank { "-" }}",
+            text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "doplnit v Upravit" }} • STK do: ${vehicle.stkUntil.ifBlank { "-" }}",
             fontSize = 12.sp,
             lineHeight = 15.sp,
             color = p.accent,
@@ -970,7 +984,7 @@ private fun VehicleSummaryCard(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Motor: ${vehicle.engineCode} (${vehicle.engineDesc}, ${vehicle.powerKw} kW) • ${vehicle.gearbox}",
+            text = "Motor: ${vehicle.engineCode} (${vehicle.engineDesc}, ${vehicle.powerKw} kW, ${cylCount}vál.) • ${vehicle.gearbox}",
             fontSize = 11.sp,
             lineHeight = 14.sp,
             color = p.textMuted,
@@ -1443,6 +1457,40 @@ private fun PartRowCard(
 }
 
 @Composable
+private fun CatalogLookupRow(vehicle: Vehicle, part: PartItem) {
+    val p = LocalGaragePalette.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "Najít přesné číslo dílu v online katalogu (${vehicle.name}):",
+            fontSize = 11.sp,
+            color = p.textMuted
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            SmallTopButton("🔎 Autodoc") {
+                GaragePlatform.openUrlInBrowser(
+                    VinAndCatalogService.buildCatalogSearchUrl("autodoc", vehicle, part)
+                )
+            }
+            SmallTopButton("🔎 Automedik") {
+                GaragePlatform.openUrlInBrowser(
+                    VinAndCatalogService.buildCatalogSearchUrl("automedik", vehicle, part)
+                )
+            }
+            SmallTopButton("🔎 Škoda-díly") {
+                GaragePlatform.openUrlInBrowser(
+                    VinAndCatalogService.buildCatalogSearchUrl("skodadily", vehicle, part)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MarkPartReplacedDialog(
     part: PartItem,
     vehicle: Vehicle,
@@ -1457,6 +1505,7 @@ private fun MarkPartReplacedDialog(
     }
     var brandText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
+    val codeChips = remember(part.specHint) { GarageCatalog.extractPartCodeChips(part.specHint) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1473,8 +1522,26 @@ private fun MarkPartReplacedDialog(
             Text("${part.categoryName} → ${part.subfolderName}", fontSize = 11.sp, color = p.accent)
             Text(part.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
             if (part.specHint.isNotBlank()) {
-                Text("Specifikace: ${part.specHint}", fontSize = 12.sp, color = p.textMuted)
+                Text("Doporučené kódy / specifikace: ${part.specHint}", fontSize = 12.sp, color = p.textMuted)
             }
+
+            if (codeChips.isNotEmpty()) {
+                Text("Klepni pro vložení přesného čísla dílu:", fontSize = 11.sp, color = p.accent)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    codeChips.forEach { code ->
+                        FilterChipBtn("+ $code", brandText.contains(code)) {
+                            brandText = if (brandText.isBlank()) code else "$brandText, $code"
+                        }
+                    }
+                }
+            }
+
+            CatalogLookupRow(vehicle = vehicle, part = part)
 
             OutlinedTextField(
                 value = kmText,
@@ -1506,7 +1573,7 @@ private fun MarkPartReplacedDialog(
             OutlinedTextField(
                 value = brandText,
                 onValueChange = { brandText = it },
-                label = { Text("Značka / Kód dílu (volitelné, např. MANN, Textar, OEM)") },
+                label = { Text("Značka / Kód dílu (např. MANN, Textar, OEM číslo)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1639,6 +1706,11 @@ private fun PartHistoryDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(part.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.textPrimary)
+            if (part.specHint.isNotBlank()) {
+                Text(part.specHint, fontSize = 11.sp, color = p.textMuted)
+            }
+
+            CatalogLookupRow(vehicle = vehicle, part = part)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1669,7 +1741,7 @@ private fun PartHistoryDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 260.dp)
+                        .heightIn(max = 240.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1795,6 +1867,11 @@ private fun EditVehicleVinDialog(
                         val apiKey = GarageStorage.loadApiKey()
                         val decoded = VinAndCatalogService.decodeVin(vin, apiKey)
                         name = decoded.name
+                        if (decoded.plate.isNotBlank()) {
+                            plate = decoded.plate
+                        } else if (vin != initialVehicle.vin.uppercase().trim() || plate in listOf("1AU 0001", "2AU 0002", "3AU 0003")) {
+                            plate = ""
+                        }
                         yearText = decoded.year.toString()
                         engineCode = decoded.engineCode
                         engineDesc = decoded.engineDesc
@@ -1834,7 +1911,7 @@ private fun EditVehicleVinDialog(
                 OutlinedTextField(
                     value = plate,
                     onValueChange = { plate = it.uppercase() },
-                    label = { Text("SPZ / RZ") },
+                    label = { Text("SPZ / RZ (ručně)") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -1869,7 +1946,7 @@ private fun EditVehicleVinDialog(
             OutlinedTextField(
                 value = engineDesc,
                 onValueChange = { engineDesc = it },
-                label = { Text("Motorizace (např. 2.0 TDI CR 1968 ccm)") },
+                label = { Text("Motorizace a počet válců (např. 3.0 TDI V6, 6 válců)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1923,7 +2000,7 @@ private fun EditVehicleVinDialog(
                                 initialVehicle.copy(
                                     name = name.ifBlank { "Vozidlo" },
                                     vin = vin,
-                                    plate = plate,
+                                    plate = plate.trim(),
                                     year = yearText.toIntOrNull() ?: 2018,
                                     engineCode = engineCode,
                                     engineDesc = engineDesc,
@@ -2119,6 +2196,7 @@ private fun SmartServiceParserDialog(
 private fun CatalogPartsPickerDialog(
     category: CategoryDef,
     subfolder: SubfolderDef,
+    vehicle: Vehicle,
     existingParts: List<PartItem>,
     onDismiss: () -> Unit,
     onAddSelectedParts: (List<String>, Boolean) -> Unit
@@ -2129,11 +2207,14 @@ private fun CatalogPartsPickerDialog(
     var selectedNames by remember { mutableStateOf(setOf<String>()) }
     var markImmediately by remember { mutableStateOf(false) }
 
-    LaunchedEffect(subfolder.id) {
+    LaunchedEffect(subfolder.id, vehicle.id) {
         loading = true
         val existingLower = existingParts.map { it.name.lowercase() }.toSet()
-        val rawList = VinAndCatalogService.fetchCatalogPartsForSubfolder(subfolder)
-            .filterNot { existingLower.contains(it.lowercase()) }
+        val rawList = VinAndCatalogService.fetchCatalogPartsForSubfolder(subfolder, vehicle)
+            .filterNot { entry ->
+                val cleanTitle = entry.replace(Regex("""\s*\[.*?\]"""), "").trim().lowercase()
+                existingLower.contains(cleanTitle)
+            }
         fetchedNames = rawList
         selectedNames = rawList.toSet()
         loading = false
@@ -2150,7 +2231,7 @@ private fun CatalogPartsPickerDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("📥 Katalog dílů: ${subfolder.title}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
-            Text("Vyber díly, které chceš přidat do této podsložky:", fontSize = 12.sp, color = p.textMuted)
+            Text("Vyber díly z katalogu pro ${vehicle.name}:", fontSize = 12.sp, color = p.textMuted)
 
             if (loading) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
