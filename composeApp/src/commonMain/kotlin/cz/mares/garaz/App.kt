@@ -1461,7 +1461,7 @@ private fun CatalogLookupRow(vehicle: Vehicle, part: PartItem) {
     val p = LocalGaragePalette.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            "Najít přesné číslo dílu v online katalogu (${vehicle.name}):",
+            "Najít přesné číslo dílu nebo ETKA rozkres (${vehicle.name}):",
             fontSize = 11.sp,
             color = p.textMuted
         )
@@ -1484,6 +1484,14 @@ private fun CatalogLookupRow(vehicle: Vehicle, part: PartItem) {
             SmallTopButton("🔎 Škoda-díly") {
                 GaragePlatform.openUrlInBrowser(
                     VinAndCatalogService.buildCatalogSearchUrl("skodadily", vehicle, part)
+                )
+            }
+            SmallTopButton("📐 7zap / ETKA") {
+                if (vehicle.vin.isNotBlank()) {
+                    GaragePlatform.copyToClipboard(vehicle.vin)
+                }
+                GaragePlatform.openUrlInBrowser(
+                    VinAndCatalogService.buildCatalogSearchUrl("7zap", vehicle, part)
                 )
             }
         }

@@ -404,7 +404,7 @@ object GarageCatalog {
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_lck_fr", "Zámek dveří – Pravý přední (spolujezdec)", "PP")
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_lck_rl", "Zámek dveří – Levý zadní", "LZ")
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_lck_rr", "Zámek dveří – Pravý zadní", "PZ")
-        add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_lck_tr", "Zámek kufru / tlačítko 5. dveří", "ZAD")
+        add("karoserie", "Karoserie, skla a dveře", "ka_lck_tr", "Zámek kufru / tlačítko 5. dveří", "ZAD")
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_win_fl", "Stahovačka okna – Levá přední", "LP")
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_win_fr", "Stahovačka okna – Pravá přední", "PP")
         add("karoserie", "Karoserie, skla a dveře", "ka_dvere", "Vzpěry, zámky, stahovačky a svazky", "ka_loom_fl", "Kabelový svazek v průchodce řidičových dveří", "LP")
@@ -455,7 +455,6 @@ object GarageCatalog {
         return 4
     }
 
-    // Presna OEM a MANN / Bosch / Continental / ATE / Textar cisla dilu podle kodu motoru a modelu vozu
     private fun resolveOemSpecHint(vehicle: Vehicle, partId: String, cylCount: Int, fallbackSpec: String): String {
         val code = vehicle.engineCode.trim().uppercase()
         val nameUp = vehicle.name.uppercase()
@@ -559,7 +558,6 @@ object GarageCatalog {
         return fallbackSpec
     }
 
-    // Vytahne ze specHint jednotlive kody dilu (OEM, MANN, BOSCH, CONTI, ATE, TEXTAR...) pro rychle vlozeni jednim klepnutim
     fun extractPartCodeChips(specHint: String): List<String> {
         if (specHint.isBlank()) return emptyList()
         val chips = linkedSetOf<String>()
@@ -1051,7 +1049,7 @@ object GarageCatalog {
 
 object VinAndCatalogService {
 
-    // Sestavi prime odkazy pro vyhledani presneho cisla dilu v Autodoc, Automedik a Skoda-dily
+    // Sestavi prime odkazy pro vyhledani presneho cisla dilu v Autodoc, Automedik, Skoda-dily a 7zap (ETKA)
     fun buildCatalogSearchUrl(catalog: String, vehicle: Vehicle, part: PartItem): String {
         val cleanCar = vehicle.name.replace(Regex("""\(\d{4}\)"""), "").trim()
         val firstOem = Regex("""OEM\s+([0-9A-Z]{2,4}\s+[0-9]{3}\s+[0-9]{3}(?:\s+[A-Z]{1,2})?)""")
@@ -1061,6 +1059,22 @@ object VinAndCatalogService {
             .replace(Regex("""–.*"""), "")
             .replace(Regex("""\(.*\)"""), "")
             .trim()
+
+        if (catalog == "7zap") {
+            if (!firstOem.isNullOrBlank()) {
+                val oemNoSpaces = firstOem.replace(" ", "")
+                return "https://7zap.com/cs/search/?keyword=$oemNoSpaces"
+            }
+            val nameUp = vehicle.name.uppercase()
+            val vinUp = vehicle.vin.uppercase()
+            val brandSlug = when {
+                nameUp.contains("AUDI") || vinUp.startsWith("WAU") || vinUp.startsWith("WUA") -> "audi"
+                nameUp.contains("VOLKSWAGEN") || nameUp.contains("VW") || vinUp.startsWith("WVW") || vinUp.startsWith("WVG") -> "volkswagen"
+                nameUp.contains("SEAT") || vinUp.startsWith("VSS") -> "seat"
+                else -> "skoda"
+            }
+            return "https://7zap.com/cs/catalog/cars/$brandSlug/"
+        }
 
         val queryText = if (!firstOem.isNullOrBlank()) {
             "$rawPartName $firstOem"
@@ -1402,7 +1416,6 @@ object VinAndCatalogService {
         return uniqueItems.joinToString(" • ")
     }
 
-    // Stahne dalsi dily z katalogu (Automedik + Skoda-dily) vcetne katalogovych a OEM cisel
     suspend fun fetchCatalogPartsForSubfolder(subfolder: SubfolderDef, vehicle: Vehicle? = null): List<String> {
         val resultSet = linkedSetOf<String>()
         GarageCatalog.extraCatalogPartsBySubfolder[subfolder.id]?.forEach { resultSet.add(it) }
@@ -1416,7 +1429,6 @@ object VinAndCatalogService {
         val encodedFull = encodeUrlParam(fullQuery)
         val encodedBase = encodeUrlParam(subfolder.catalogQuery)
 
-        // 1. Dotaz na Automedik katalog (vcetne vyhledani cisel dilu v okoli nadpisu)
         val automedikUrl = "https://www.automedik.cz/vyhledavani?search=$encodedFull"
         val amRes = GaragePlatform.httpGet(automedikUrl)
         if (amRes.isSuccess) {
@@ -1439,7 +1451,6 @@ object VinAndCatalogService {
             }
         }
 
-        // 2. Dotaz na Skoda-dily katalog (vcetne vycteni OEM cisla z detailu polozky)
         val sdUrl = "https://www.skoda-dily.cz/hledani.html?q=$encodedBase"
         val sdRes = GaragePlatform.httpGet(sdUrl)
         if (sdRes.isSuccess) {
