@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -41,7 +40,6 @@ private val TextMuted = Color(0xFF94A3B8)
 
 @Composable
 fun App() {
-    val scope = rememberCoroutineScope()
     var vehicles by remember { mutableStateOf(GarageStorage.loadVehicles()) }
     var selectedVehicleId by remember { mutableStateOf(vehicles.firstOrNull()?.id ?: "") }
     val currentVehicle = vehicles.find { it.id == selectedVehicleId } ?: vehicles.firstOrNull()
@@ -90,28 +88,38 @@ fun App() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(BgDark)
-                .padding(top = 38.dp, start = 12.dp, end = 12.dp, bottom = 8.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            // Horni lista aplikace
+            // Kompaktni horni lista na jeden radek bez zalamovani
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🚘 GARÁŽ", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Katalog & Servis podle VIN", fontSize = 12.sp, color = TextMuted)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "🚘 GARÁŽ",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = AccentSky,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.weight(1f)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     SmallTopButton("📜 Historie") { showAllHistoryDialog = true }
                     SmallTopButton("⚙️ Nastavení") { showSettingsDialog = true }
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
 
-            // Prepinac aut v garazi
+            // Kompaktni prepinac aut v garazi
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -131,18 +139,24 @@ fun App() {
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .clickable { selectedVehicleId = car.id }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Column {
                             Text(
                                 text = car.name,
                                 fontSize = 13.sp,
+                                lineHeight = 16.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
                                 color = if (isSel) AccentSky else TextWhite
                             )
                             Text(
                                 text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "VIN" }}",
                                 fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 color = TextMuted
                             )
                         }
@@ -157,9 +171,16 @@ fun App() {
                             isAddingNewVehicle = true
                             showEditVehicleDialog = true
                         }
-                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
-                    Text("+ Přidat auto", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AccentSky)
+                    Text(
+                        text = "+ Přidat auto",
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentSky
+                    )
                 }
             }
 
@@ -184,7 +205,7 @@ fun App() {
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
 
             if (currentVehicle != null) {
                 val allParts = remember(currentVehicle) { GarageCatalog.allPartsForVehicle(currentVehicle) }
@@ -224,7 +245,15 @@ fun App() {
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Hledat díl (např. čep, tlumič, olej, vstřik, žhavič...)", fontSize = 13.sp, color = TextMuted) },
+                                placeholder = {
+                                    Text(
+                                        "Hledat díl (čep, tlumič, olej, vstřik...)",
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = TextMuted
+                                    )
+                                },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 trailingIcon = {
@@ -239,12 +268,14 @@ fun App() {
                             )
                             Spacer(Modifier.height(8.dp))
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 FilterChipBtn("Všechny díly (${allParts.size})", filterMode == 0) { filterMode = 0 }
                                 FilterChipBtn("✓ Vyměněné (${replacedPartIds.size})", filterMode == 1) { filterMode = 1 }
-                                FilterChipBtn("⏱ Hlídání intervalů", filterMode == 2) { filterMode = 2 }
+                                FilterChipBtn("⏱ Intervaly", filterMode == 2) { filterMode = 2 }
                             }
                         }
                     }
@@ -325,7 +356,7 @@ fun App() {
                         }
                     }
 
-                    item { Spacer(Modifier.height(28.dp)) }
+                    item { Spacer(Modifier.height(24.dp)) }
                 }
             }
         }
@@ -598,108 +629,146 @@ private fun VehicleSummaryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(CardDark)
-            .border(1.dp, BorderSlate, RoundedCornerShape(14.dp))
-            .padding(12.dp)
+            .border(1.dp, BorderSlate, RoundedCornerShape(12.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // Radek 1: Nazev auta vlevo + tlacitko VIN / Upravit vpravo
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(vehicle.name, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = TextWhite)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }}",
-                    fontSize = 12.sp,
-                    color = AccentSky,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    "Motor: ${vehicle.engineCode} (${vehicle.engineDesc}, ${vehicle.powerKw} kW) • ${vehicle.gearbox}",
-                    fontSize = 12.sp,
-                    color = TextMuted
-                )
-                if (vehicle.stkUntil.isNotBlank() || vehicle.tiresInfo.isNotBlank()) {
-                    Text(
-                        "STK do: ${vehicle.stkUntil.ifBlank { "-" }} • Pneu: ${vehicle.tiresInfo.ifBlank { "-" }}",
-                        fontSize = 11.sp,
-                        color = TextMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            Text(
+                text = vehicle.name,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextWhite,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .background(CardDarker)
-                    .border(1.dp, AccentSky.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    .border(1.dp, AccentSky.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                     .clickable { onEditVinOrVehicle() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
-                Text("🔍 VIN / Upravit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AccentSky)
+                Text(
+                    text = "🔍 VIN / Upravit",
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    fontWeight = FontWeight.Bold,
+                    color = AccentSky
+                )
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        // Technicke udaje pres celou sirku karty (kompaktni radkovani)
+        Text(
+            text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }}",
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            color = AccentSky,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Motor: ${vehicle.engineCode} (${vehicle.engineDesc}, ${vehicle.powerKw} kW) • ${vehicle.gearbox}",
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            color = TextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (vehicle.stkUntil.isNotBlank() || vehicle.tiresInfo.isNotBlank()) {
+            Text(
+                text = "STK do: ${vehicle.stkUntil.ifBlank { "-" }} • Pneu: ${vehicle.tiresInfo.ifBlank { "-" }}",
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
+        // Radek s tachometrem a poctem vymenenych dilu
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Aktualni stav km
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(9.dp))
                     .background(CardDarker)
-                    .border(1.dp, BorderSlate, RoundedCornerShape(10.dp))
+                    .border(1.dp, BorderSlate, RoundedCornerShape(9.dp))
                     .clickable { onQuickKmClick() }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text("Tachometr (klepni pro úpravu)", fontSize = 10.sp, color = TextMuted)
-                    Text(formatKm(vehicle.currentMileageKm), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = TextWhite)
+                    Text("Tachometr (upravit)", fontSize = 10.sp, lineHeight = 12.sp, color = TextMuted)
+                    Text(
+                        text = formatKm(vehicle.currentMileageKm),
+                        fontSize = 14.sp,
+                        lineHeight = 17.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextWhite
+                    )
                 }
-                Text("✎", fontSize = 16.sp, color = AccentSky)
+                Text("✎", fontSize = 15.sp, color = AccentSky)
             }
 
-            // Prehled vymenenych dilu
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(9.dp))
                     .background(GreenBg.copy(alpha = 0.55f))
-                    .border(1.dp, GreenOk.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .border(1.dp, GreenOk.copy(alpha = 0.6f), RoundedCornerShape(9.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Vyměněno dílů", fontSize = 10.sp, color = TextWhite)
-                Text("$replacedCount / $totalPartsCount", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = GreenOk)
+                Text("Vyměněno dílů", fontSize = 10.sp, lineHeight = 12.sp, color = TextWhite)
+                Text(
+                    text = "$replacedCount / $totalPartsCount",
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = GreenOk
+                )
             }
         }
-
-        Spacer(Modifier.height(8.dp))
 
         // Tlacitko pro chytre rozklicovani servisu
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(9.dp))
                 .background(AccentSky.copy(alpha = 0.16f))
-                .border(1.dp, AccentSky, RoundedCornerShape(10.dp))
+                .border(1.dp, AccentSky, RoundedCornerShape(9.dp))
                 .clickable { onSmartParseClick() }
-                .padding(vertical = 9.dp),
+                .padding(vertical = 7.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                "⚡ Zapsat větší servis (Automaticky rozklíčovat položky z textu)",
+                text = "⚡ Zapsat větší servis (Rozklíčovat položky z textu)",
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Bold,
                 color = AccentSky
             )
@@ -734,18 +803,25 @@ private fun CategoryTreeCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onToggleCategory() }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Text(category.icon, fontSize = 20.sp)
+                Text(category.icon, fontSize = 18.sp)
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(category.title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextWhite)
                     Text(
-                        "${category.subfolders.size} podsložek • ${allCategoryParts.size} dílů",
+                        text = category.title,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Text(
+                        text = "${category.subfolders.size} podsložek • ${allCategoryParts.size} dílů",
                         fontSize = 11.sp,
+                        lineHeight = 14.sp,
                         color = TextMuted
                     )
                 }
@@ -757,12 +833,19 @@ private fun CategoryTreeCard(
                             .clip(RoundedCornerShape(8.dp))
                             .background(GreenBg)
                             .border(1.dp, GreenOk, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
-                        Text("✓ $replacedCount vyměněno", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GreenOk)
+                        Text(
+                            text = "✓ $replacedCount",
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontWeight = FontWeight.Bold,
+                            color = GreenOk
+                        )
                     }
                 }
-                Text(if (isExpanded) "▲" else "▼", fontSize = 14.sp, color = AccentSky)
+                Text(if (isExpanded) "▲" else "▼", fontSize = 13.sp, color = AccentSky)
             }
         }
 
@@ -772,8 +855,8 @@ private fun CategoryTreeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(CardDarker)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 category.subfolders.forEach { sub ->
                     val subParts = allCategoryParts.filter { it.subfolderId == sub.id }
@@ -795,28 +878,31 @@ private fun CategoryTreeCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onToggleSubfolder(sub.id) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Text(if (isSubExpanded) "📂" else "📁", fontSize = 15.sp)
+                                Text(if (isSubExpanded) "📂" else "📁", fontSize = 14.sp)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    sub.title,
-                                    fontSize = 14.sp,
+                                    text = sub.title,
+                                    fontSize = 13.sp,
+                                    lineHeight = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
-                                    if (subReplaced > 0) "✓ $subReplaced/${subParts.size}" else "${subParts.size} dílů",
+                                    text = if (subReplaced > 0) "✓ $subReplaced/${subParts.size}" else "${subParts.size} dílů",
                                     fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
                                     fontWeight = if (subReplaced > 0) FontWeight.Bold else FontWeight.Normal,
                                     color = if (subReplaced > 0) GreenOk else TextMuted
                                 )
-                                Text(if (isSubExpanded) "−" else "+", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AccentSky)
+                                Text(if (isSubExpanded) "−" else "+", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AccentSky)
                             }
                         }
 
@@ -858,7 +944,14 @@ private fun CategoryTreeCard(
                                             .padding(vertical = 8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("📥 Načíst další díly z katalogu", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentSky)
+                                        Text(
+                                            text = "📥 Načíst další díly z katalogu",
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AccentSky
+                                        )
                                     }
                                     Box(
                                         modifier = Modifier
@@ -869,7 +962,14 @@ private fun CategoryTreeCard(
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("+ Vlastní díl", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextWhite)
+                                        Text(
+                                            text = "+ Vlastní díl",
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextWhite
+                                        )
                                     }
                                 }
                             }
@@ -915,15 +1015,16 @@ private fun PartRowCard(
             .clickable {
                 if (isReplaced) onShowHistory() else onMarkReplaced()
             }
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             if (showCategoryPath) {
                 Text(
-                    "${part.categoryName} → ${part.subfolderName}",
+                    text = "${part.categoryName} → ${part.subfolderName}",
                     fontSize = 10.sp,
+                    lineHeight = 13.sp,
                     color = AccentSky
                 )
             }
@@ -942,6 +1043,7 @@ private fun PartRowCard(
                 Text(
                     text = part.name,
                     fontSize = 13.sp,
+                    lineHeight = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite
                 )
@@ -950,20 +1052,21 @@ private fun PartRowCard(
             if (part.specHint.isNotBlank() || part.defaultIntervalKm > 0) {
                 val intervalTxt = if (part.defaultIntervalKm > 0) "Interval: ${formatKm(part.defaultIntervalKm)}" else ""
                 val combined = listOf(part.specHint, intervalTxt).filter { it.isNotBlank() }.joinToString(" • ")
-                Text(combined, fontSize = 11.sp, color = TextMuted)
+                Text(combined, fontSize = 11.sp, lineHeight = 14.sp, color = TextMuted)
             }
 
             if (lastRec != null) {
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     text = "✓ Vyměněno: ${formatKm(lastRec.mileageKm)} (${lastRec.date}) • najeto ${formatKm(drivenSinceLast)}",
                     fontSize = 11.sp,
+                    lineHeight = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = GreenOk
                 )
                 if (lastRec.brandOrSpec.isNotBlank() || lastRec.note.isNotBlank()) {
                     val info = listOf(lastRec.brandOrSpec, lastRec.note).filter { it.isNotBlank() }.joinToString(" – ")
-                    Text("Díl / pozn.: $info", fontSize = 11.sp, color = TextWhite.copy(alpha = 0.85f))
+                    Text("Díl / pozn.: $info", fontSize = 11.sp, lineHeight = 14.sp, color = TextWhite.copy(alpha = 0.85f))
                 }
                 if (remainingKm != null) {
                     val statusTxt = if (remainingKm >= 0) {
@@ -976,7 +1079,7 @@ private fun PartRowCard(
                         remainingKm <= 3000 -> AmberWarn
                         else -> AccentSky
                     }
-                    Text(statusTxt, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = statusCol)
+                    Text(statusTxt, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, color = statusCol)
                 }
             }
         }
@@ -987,11 +1090,13 @@ private fun PartRowCard(
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (isReplaced) GreenOk else AccentSky)
                     .clickable { onMarkReplaced() }
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .padding(horizontal = 9.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = if (isReplaced) "✓ + Vyměnit" else "✓ Vyměněno",
                     fontSize = 11.sp,
+                    maxLines = 1,
+                    softWrap = false,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.Black
                 )
@@ -1000,6 +1105,8 @@ private fun PartRowCard(
                 Text(
                     text = "Historie (${records.size}x)",
                     fontSize = 10.sp,
+                    maxLines = 1,
+                    softWrap = false,
                     color = AccentSky,
                     modifier = Modifier.clickable { onShowHistory() }.padding(2.dp)
                 )
@@ -1932,7 +2039,15 @@ private fun SmallTopButton(text: String, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextWhite)
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            maxLines = 1,
+            softWrap = false,
+            fontWeight = FontWeight.SemiBold,
+            color = TextWhite
+        )
     }
 }
 
@@ -1947,8 +2062,11 @@ private fun FilterChipBtn(label: String, active: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(
-            label,
+            text = label,
             fontSize = 11.sp,
+            lineHeight = 14.sp,
+            maxLines = 1,
+            softWrap = false,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
             color = if (active) AccentSky else TextMuted
         )
