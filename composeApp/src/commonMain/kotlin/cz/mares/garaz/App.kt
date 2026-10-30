@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,20 +27,70 @@ import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-private val BgDark = Color(0xFF0F172A)
-private val CardDark = Color(0xFF1E293B)
-private val CardDarker = Color(0xFF152033)
-private val BorderSlate = Color(0xFF334155)
-private val AccentSky = Color(0xFF38BDF8)
-private val GreenOk = Color(0xFF10B981)
-private val GreenBg = Color(0xFF064E3B)
-private val AmberWarn = Color(0xFFF59E0B)
-private val RedAlert = Color(0xFFEF4444)
-private val TextWhite = Color(0xFFF8FAFC)
-private val TextMuted = Color(0xFF94A3B8)
+private data class GaragePalette(
+    val isDark: Boolean,
+    val bg: Color,
+    val card: Color,
+    val cardSub: Color,
+    val border: Color,
+    val accent: Color,
+    val greenOk: Color,
+    val greenBg: Color,
+    val amberWarn: Color,
+    val redAlert: Color,
+    val textPrimary: Color,
+    val textMuted: Color,
+    val onAccent: Color
+)
+
+private val DarkPalette = GaragePalette(
+    isDark = true,
+    bg = Color(0xFF0F172A),
+    card = Color(0xFF1E293B),
+    cardSub = Color(0xFF152033),
+    border = Color(0xFF334155),
+    accent = Color(0xFF38BDF8),
+    greenOk = Color(0xFF10B981),
+    greenBg = Color(0xFF064E3B),
+    amberWarn = Color(0xFFF59E0B),
+    redAlert = Color(0xFFEF4444),
+    textPrimary = Color(0xFFF8FAFC),
+    textMuted = Color(0xFF94A3B8),
+    onAccent = Color(0xFF0F172A)
+)
+
+private val LightPalette = GaragePalette(
+    isDark = false,
+    bg = Color(0xFFF1F5F9),
+    card = Color(0xFFFFFFFF),
+    cardSub = Color(0xFFF8FAFC),
+    border = Color(0xFFCBD5E1),
+    accent = Color(0xFF0284C7),
+    greenOk = Color(0xFF059669),
+    greenBg = Color(0xFFD1FAE5),
+    amberWarn = Color(0xFFD97706),
+    redAlert = Color(0xFFDC2626),
+    textPrimary = Color(0xFF0F172A),
+    textMuted = Color(0xFF475569),
+    onAccent = Color(0xFFFFFFFF)
+)
+
+private val LocalGaragePalette = compositionLocalOf { DarkPalette }
 
 @Composable
 fun App() {
+    val systemDark = isSystemInDarkTheme()
+    // 0 = Automaticky podle systemu, 1 = Svetly (Den), 2 = Tmavy (Noc)
+    var themePref by remember {
+        mutableStateOf(GaragePlatform.loadString("garaz_theme_mode_v1", "0").toIntOrNull() ?: 0)
+    }
+    val useDark = when (themePref) {
+        1 -> false
+        2 -> true
+        else -> systemDark
+    }
+    val palette = if (useDark) DarkPalette else LightPalette
+
     var vehicles by remember { mutableStateOf(GarageStorage.loadVehicles()) }
     var selectedVehicleId by remember { mutableStateOf(vehicles.firstOrNull()?.id ?: "") }
     val currentVehicle = vehicles.find { it.id == selectedVehicleId } ?: vehicles.firstOrNull()
@@ -74,545 +125,565 @@ fun App() {
         updateVehicles(updated)
     }
 
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = AccentSky,
-            background = BgDark,
-            surface = CardDark,
-            onPrimary = Color.Black,
-            onBackground = TextWhite,
-            onSurface = TextWhite
+    val materialColors = if (useDark) {
+        darkColorScheme(
+            primary = palette.accent,
+            background = palette.bg,
+            surface = palette.card,
+            onPrimary = palette.onAccent,
+            onBackground = palette.textPrimary,
+            onSurface = palette.textPrimary
         )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(BgDark)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            // Kompaktni horni lista na jeden radek bez zalamovani
-            Row(
+    } else {
+        lightColorScheme(
+            primary = palette.accent,
+            background = palette.bg,
+            surface = palette.card,
+            onPrimary = palette.onAccent,
+            onBackground = palette.textPrimary,
+            onSurface = palette.textPrimary
+        )
+    }
+
+    CompositionLocalProvider(LocalGaragePalette provides palette) {
+        MaterialTheme(colorScheme = materialColors) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .fillMaxSize()
+                    .background(palette.bg)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Text(
-                    text = "🚘 GARÁŽ",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = AccentSky,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.weight(1f)
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SmallTopButton("📜 Historie") { showAllHistoryDialog = true }
-                    SmallTopButton("⚙️ Nastavení") { showSettingsDialog = true }
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // Kompaktni prepinac aut v garazi
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                vehicles.forEach { car ->
-                    val isSel = car.id == currentVehicle?.id
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSel) AccentSky.copy(alpha = 0.2f) else CardDark)
-                            .border(
-                                width = if (isSel) 2.dp else 1.dp,
-                                color = if (isSel) AccentSky else BorderSlate,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .clickable { selectedVehicleId = car.id }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = car.name,
-                                fontSize = 13.sp,
-                                lineHeight = 16.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSel) AccentSky else TextWhite
-                            )
-                            Text(
-                                text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "VIN" }}",
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                                color = TextMuted
-                            )
-                        }
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(CardDark)
-                        .border(1.dp, BorderSlate, RoundedCornerShape(10.dp))
-                        .clickable {
-                            isAddingNewVehicle = true
-                            showEditVehicleDialog = true
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = "+ Přidat auto",
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        fontWeight = FontWeight.Bold,
-                        color = AccentSky
-                    )
-                }
-            }
-
-            if (statusBanner != null) {
-                Spacer(Modifier.height(6.dp))
+                // Kompaktni horni lista na jeden radek bez zalamovani
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(GreenBg)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "🚘 GARÁŽ",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = palette.accent,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SmallTopButton("📜 Historie") { showAllHistoryDialog = true }
+                        SmallTopButton("⚙️ Nastavení") { showSettingsDialog = true }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                // Kompaktni prepinac aut v garazi
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(statusBanner ?: "", fontSize = 12.sp, color = TextWhite, modifier = Modifier.weight(1f))
-                    Text(
-                        "✕",
-                        fontSize = 14.sp,
-                        color = TextWhite,
-                        modifier = Modifier.clickable { statusBanner = null }.padding(start = 8.dp)
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            if (currentVehicle != null) {
-                val allParts = remember(currentVehicle) { GarageCatalog.allPartsForVehicle(currentVehicle) }
-                val replacedPartIds = remember(currentVehicle.records) {
-                    currentVehicle.records.map { it.partId }.toSet()
-                }
-
-                // Seznam vsech polozek v hlavnim scrollu
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Karta vybraneho vozidla
-                    item {
-                        VehicleSummaryCard(
-                            vehicle = currentVehicle,
-                            replacedCount = replacedPartIds.size,
-                            totalPartsCount = allParts.size,
-                            onEditVinOrVehicle = {
-                                isAddingNewVehicle = false
+                    vehicles.forEach { car ->
+                        val isSel = car.id == currentVehicle?.id
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSel) palette.accent.copy(alpha = 0.18f) else palette.card)
+                                .border(
+                                    width = if (isSel) 2.dp else 1.dp,
+                                    color = if (isSel) palette.accent else palette.border,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedVehicleId = car.id }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = car.name,
+                                    fontSize = 13.sp,
+                                    lineHeight = 16.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) palette.accent else palette.textPrimary
+                                )
+                                Text(
+                                    text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "VIN" }}",
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = palette.textMuted
+                                )
+                            }
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(palette.card)
+                            .border(1.dp, palette.border, RoundedCornerShape(10.dp))
+                            .clickable {
+                                isAddingNewVehicle = true
                                 showEditVehicleDialog = true
-                            },
-                            onQuickKmClick = { showQuickMileageDialog = true },
-                            onSmartParseClick = { showSmartParserDialog = true }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = "+ Přidat auto",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.accent
                         )
                     }
+                }
 
-                    // Vyhledavani a filtry
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(CardDark)
-                                .padding(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                placeholder = {
-                                    Text(
-                                        "Hledat díl (čep, tlumič, olej, vstřik...)",
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = TextMuted
-                                    )
+                if (statusBanner != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(palette.greenBg)
+                            .border(1.dp, palette.greenOk, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(statusBanner ?: "", fontSize = 12.sp, color = palette.textPrimary, modifier = Modifier.weight(1f))
+                        Text(
+                            "✕",
+                            fontSize = 14.sp,
+                            color = palette.textPrimary,
+                            modifier = Modifier.clickable { statusBanner = null }.padding(start = 8.dp)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                if (currentVehicle != null) {
+                    val allParts = remember(currentVehicle) { GarageCatalog.allPartsForVehicle(currentVehicle) }
+                    val replacedPartIds = remember(currentVehicle.records) {
+                        currentVehicle.records.map { it.partId }.toSet()
+                    }
+
+                    // Seznam vsech polozek v hlavnim scrollu
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Karta vybraneho vozidla
+                        item {
+                            VehicleSummaryCard(
+                                vehicle = currentVehicle,
+                                replacedCount = replacedPartIds.size,
+                                totalPartsCount = allParts.size,
+                                onEditVinOrVehicle = {
+                                    isAddingNewVehicle = false
+                                    showEditVehicleDialog = true
                                 },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                trailingIcon = {
-                                    if (searchQuery.isNotBlank()) {
-                                        Text(
-                                            "✕",
-                                            color = TextMuted,
-                                            modifier = Modifier.clickable { searchQuery = "" }.padding(8.dp)
-                                        )
-                                    }
-                                }
+                                onQuickKmClick = { showQuickMileageDialog = true },
+                                onSmartParseClick = { showSmartParserDialog = true }
                             )
-                            Spacer(Modifier.height(8.dp))
-                            Row(
+                        }
+
+                        // Vyhledavani a filtry
+                        item {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(palette.card)
+                                    .border(1.dp, palette.border, RoundedCornerShape(12.dp))
+                                    .padding(10.dp)
                             ) {
-                                FilterChipBtn("Všechny díly (${allParts.size})", filterMode == 0) { filterMode = 0 }
-                                FilterChipBtn("✓ Vyměněné (${replacedPartIds.size})", filterMode == 1) { filterMode = 1 }
-                                FilterChipBtn("⏱ Intervaly", filterMode == 2) { filterMode = 2 }
-                            }
-                        }
-                    }
-
-                    // Pokud uzivatel vyhledava nebo filtruje, zobrazime primo vyfiltrovane dily
-                    if (searchQuery.isNotBlank() || filterMode != 0) {
-                        val normQuery = GarageCatalog.removeDiacritics(searchQuery.trim().lowercase())
-                        val filteredParts = allParts.filter { part ->
-                            val matchesSearch = if (normQuery.isBlank()) true else {
-                                val pName = GarageCatalog.removeDiacritics(part.name.lowercase())
-                                val sName = GarageCatalog.removeDiacritics(part.subfolderName.lowercase())
-                                pName.contains(normQuery) || sName.contains(normQuery)
-                            }
-                            val matchesFilter = when (filterMode) {
-                                1 -> replacedPartIds.contains(part.id)
-                                2 -> part.defaultIntervalKm > 0
-                                else -> true
-                            }
-                            matchesSearch && matchesFilter
-                        }
-
-                        item {
-                            Text(
-                                "Nalezené položky (${filteredParts.size}):",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AccentSky,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        items(filteredParts, key = { it.id }) { part ->
-                            val partRecords = currentVehicle.records
-                                .filter { it.partId == part.id }
-                                .sortedByDescending { it.mileageKm }
-                            PartRowCard(
-                                part = part,
-                                vehicleMileage = currentVehicle.currentMileageKm,
-                                records = partRecords,
-                                showCategoryPath = true,
-                                onMarkReplaced = { partToMarkReplaced = part },
-                                onShowHistory = { partForHistoryDetail = part }
-                            )
-                        }
-                    } else {
-                        // Stromova struktura: Kategorie -> Podslozky -> Konkretni dily
-                        items(GarageCatalog.categories, key = { it.id }) { cat ->
-                            val catParts = allParts.filter { it.categoryId == cat.id }
-                            val catReplacedCount = catParts.count { replacedPartIds.contains(it.id) }
-                            val isCatExpanded = expandedCategoryIds.contains(cat.id)
-
-                            CategoryTreeCard(
-                                category = cat,
-                                allCategoryParts = catParts,
-                                replacedCount = catReplacedCount,
-                                isExpanded = isCatExpanded,
-                                expandedSubfolderIds = expandedSubfolderIds,
-                                vehicle = currentVehicle,
-                                onToggleCategory = {
-                                    expandedCategoryIds = if (isCatExpanded) {
-                                        expandedCategoryIds - cat.id
-                                    } else {
-                                        expandedCategoryIds + cat.id
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholder = {
+                                        Text(
+                                            "Hledat díl (čep, tlumič, olej, vstřik...)",
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = palette.textMuted
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        if (searchQuery.isNotBlank()) {
+                                            Text(
+                                                "✕",
+                                                color = palette.textMuted,
+                                                modifier = Modifier.clickable { searchQuery = "" }.padding(8.dp)
+                                            )
+                                        }
                                     }
-                                },
-                                onToggleSubfolder = { subId ->
-                                    expandedSubfolderIds = if (expandedSubfolderIds.contains(subId)) {
-                                        expandedSubfolderIds - subId
-                                    } else {
-                                        expandedSubfolderIds + subId
-                                    }
-                                },
-                                onMarkPartReplaced = { part -> partToMarkReplaced = part },
-                                onShowPartHistory = { part -> partForHistoryDetail = part },
-                                onFetchExtraParts = { sub -> subfolderForCatalogFetch = cat to sub },
-                                onAddCustomPart = { sub -> subfolderForCustomPart = cat to sub }
-                            )
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilterChipBtn("Všechny díly (${allParts.size})", filterMode == 0) { filterMode = 0 }
+                                    FilterChipBtn("✓ Vyměněné (${replacedPartIds.size})", filterMode == 1) { filterMode = 1 }
+                                    FilterChipBtn("⏱ Intervaly", filterMode == 2) { filterMode = 2 }
+                                }
+                            }
                         }
-                    }
 
-                    item { Spacer(Modifier.height(24.dp)) }
-                }
-            }
-        }
+                        // Pokud uzivatel vyhledava nebo filtruje, zobrazime primo vyfiltrovane dily
+                        if (searchQuery.isNotBlank() || filterMode != 0) {
+                            val normQuery = GarageCatalog.removeDiacritics(searchQuery.trim().lowercase())
+                            val filteredParts = allParts.filter { part ->
+                                val matchesSearch = if (normQuery.isBlank()) true else {
+                                    val pName = GarageCatalog.removeDiacritics(part.name.lowercase())
+                                    val sName = GarageCatalog.removeDiacritics(part.subfolderName.lowercase())
+                                    pName.contains(normQuery) || sName.contains(normQuery)
+                                }
+                                val matchesFilter = when (filterMode) {
+                                    1 -> replacedPartIds.contains(part.id)
+                                    2 -> part.defaultIntervalKm > 0
+                                    else -> true
+                                }
+                                matchesSearch && matchesFilter
+                            }
 
-        // 1. Dialog pro oznaceni konkretniho dilu jako VYMENENO
-        val targetPart = partToMarkReplaced
-        if (targetPart != null && currentVehicle != null) {
-            MarkPartReplacedDialog(
-                part = targetPart,
-                vehicle = currentVehicle,
-                onDismiss = { partToMarkReplaced = null },
-                onConfirm = { km, date, brand, note ->
-                    val newRec = ReplacementRecord(
-                        id = "rec_${Random.nextInt(100000, 999999)}",
-                        partId = targetPart.id,
-                        date = date,
-                        mileageKm = km,
-                        brandOrSpec = brand,
-                        note = note
-                    )
-                    updateCurrentVehicle { v ->
-                        val updatedKm = maxOf(v.currentMileageKm, km)
-                        v.copy(
-                            currentMileageKm = updatedKm,
-                            records = listOf(newRec) + v.records
-                        )
-                    }
-                    statusBanner = "✓ Označeno jako vyměněné: ${targetPart.name} (${formatKm(km)})"
-                    partToMarkReplaced = null
-                }
-            )
-        }
+                            item {
+                                Text(
+                                    "Nalezené položky (${filteredParts.size}):",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.accent,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
 
-        // 2. Dialog historie konkretniho dilu (s moznosti smazat zaznam)
-        val historyPart = partForHistoryDetail
-        if (historyPart != null && currentVehicle != null) {
-            PartHistoryDialog(
-                part = historyPart,
-                vehicle = currentVehicle,
-                onDismiss = { partForHistoryDetail = null },
-                onAddAnother = {
-                    partForHistoryDetail = null
-                    partToMarkReplaced = historyPart
-                },
-                onDeleteRecord = { recId ->
-                    updateCurrentVehicle { v ->
-                        v.copy(records = v.records.filterNot { it.id == recId })
-                    }
-                }
-            )
-        }
-
-        // 3. Dialog pro nacteni/upravu auta podle VIN (dataovozidlech.cz)
-        if (showEditVehicleDialog) {
-            val editingCar = if (isAddingNewVehicle) {
-                Vehicle(
-                    id = "car_${Random.nextInt(10000, 99999)}",
-                    name = "Nové vozidlo",
-                    vin = "",
-                    plate = "",
-                    year = 2018,
-                    engineCode = "",
-                    engineDesc = "",
-                    powerKw = 110,
-                    gearbox = "DSG / Manuál",
-                    color = "",
-                    stkUntil = "",
-                    tiresInfo = "",
-                    currentMileageKm = 150000
-                )
-            } else {
-                currentVehicle
-            }
-
-            if (editingCar != null) {
-                EditVehicleVinDialog(
-                    initialVehicle = editingCar,
-                    isNew = isAddingNewVehicle,
-                    canDelete = vehicles.size > 1 && !isAddingNewVehicle,
-                    onDismiss = { showEditVehicleDialog = false },
-                    onSave = { savedCar ->
-                        if (isAddingNewVehicle) {
-                            val newList = vehicles + savedCar
-                            updateVehicles(newList)
-                            selectedVehicleId = savedCar.id
+                            items(filteredParts, key = { it.id }) { part ->
+                                val partRecords = currentVehicle.records
+                                    .filter { it.partId == part.id }
+                                    .sortedByDescending { it.mileageKm }
+                                PartRowCard(
+                                    part = part,
+                                    vehicleMileage = currentVehicle.currentMileageKm,
+                                    records = partRecords,
+                                    showCategoryPath = true,
+                                    onMarkReplaced = { partToMarkReplaced = part },
+                                    onShowHistory = { partForHistoryDetail = part }
+                                )
+                            }
                         } else {
-                            updateVehicles(vehicles.map { if (it.id == savedCar.id) savedCar else it })
+                            // Stromova struktura: Kategorie -> Podslozky -> Konkretni dily
+                            items(GarageCatalog.categories, key = { it.id }) { cat ->
+                                val catParts = allParts.filter { it.categoryId == cat.id }
+                                val catReplacedCount = catParts.count { replacedPartIds.contains(it.id) }
+                                val isCatExpanded = expandedCategoryIds.contains(cat.id)
+
+                                CategoryTreeCard(
+                                    category = cat,
+                                    allCategoryParts = catParts,
+                                    replacedCount = catReplacedCount,
+                                    isExpanded = isCatExpanded,
+                                    expandedSubfolderIds = expandedSubfolderIds,
+                                    vehicle = currentVehicle,
+                                    onToggleCategory = {
+                                        expandedCategoryIds = if (isCatExpanded) {
+                                            expandedCategoryIds - cat.id
+                                        } else {
+                                            expandedCategoryIds + cat.id
+                                        }
+                                    },
+                                    onToggleSubfolder = { subId ->
+                                        expandedSubfolderIds = if (expandedSubfolderIds.contains(subId)) {
+                                            expandedSubfolderIds - subId
+                                        } else {
+                                            expandedSubfolderIds + subId
+                                        }
+                                    },
+                                    onMarkPartReplaced = { part -> partToMarkReplaced = part },
+                                    onShowPartHistory = { part -> partForHistoryDetail = part },
+                                    onFetchExtraParts = { sub -> subfolderForCatalogFetch = cat to sub },
+                                    onAddCustomPart = { sub -> subfolderForCustomPart = cat to sub }
+                                )
+                            }
                         }
-                        showEditVehicleDialog = false
-                        statusBanner = "Karta vozidla ${savedCar.name} uložena."
-                    },
-                    onDelete = {
-                        val remaining = vehicles.filterNot { it.id == editingCar.id }
-                        updateVehicles(remaining)
-                        selectedVehicleId = remaining.firstOrNull()?.id ?: ""
-                        showEditVehicleDialog = false
+
+                        item { Spacer(Modifier.height(24.dp)) }
                     }
-                )
-            }
-        }
-
-        // 4. Rychla uprava stavu tachometru
-        if (showQuickMileageDialog && currentVehicle != null) {
-            QuickMileageDialog(
-                currentKm = currentVehicle.currentMileageKm,
-                vehicleName = currentVehicle.name,
-                onDismiss = { showQuickMileageDialog = false },
-                onSave = { newKm ->
-                    updateCurrentVehicle { it.copy(currentMileageKm = newKm) }
-                    showQuickMileageDialog = false
-                    statusBanner = "Stav tachometru aktualizován na ${formatKm(newKm)}."
                 }
-            )
-        }
+            }
 
-        // 5. Chytre rozklicovani hromadneho servisu z textu
-        if (showSmartParserDialog && currentVehicle != null) {
-            SmartServiceParserDialog(
-                vehicle = currentVehicle,
-                onDismiss = { showSmartParserDialog = false },
-                onConfirmMultiple = { selectedParts, km, date, brand, note ->
-                    val newRecords = selectedParts.map { p ->
-                        ReplacementRecord(
-                            id = "rec_${Random.nextInt(100000, 999999)}_${p.id}",
-                            partId = p.id,
+            // 1. Dialog pro oznaceni konkretniho dilu jako VYMENENO
+            val targetPart = partToMarkReplaced
+            if (targetPart != null && currentVehicle != null) {
+                MarkPartReplacedDialog(
+                    part = targetPart,
+                    vehicle = currentVehicle,
+                    onDismiss = { partToMarkReplaced = null },
+                    onConfirm = { km, date, brand, note ->
+                        val newRec = ReplacementRecord(
+                            id = "rec_${Random.nextInt(100000, 999999)}",
+                            partId = targetPart.id,
                             date = date,
                             mileageKm = km,
                             brandOrSpec = brand,
                             note = note
                         )
-                    }
-                    updateCurrentVehicle { v ->
-                        v.copy(
-                            currentMileageKm = maxOf(v.currentMileageKm, km),
-                            records = newRecords + v.records
-                        )
-                    }
-                    showSmartParserDialog = false
-                    statusBanner = "✓ Hromadně zapsáno ${newRecords.size} vyměněných položek (${formatKm(km)})."
-                }
-            )
-        }
-
-        // 6. Nacitani dalsich dilu z online katalogu do podslozky
-        val fetchTarget = subfolderForCatalogFetch
-        if (fetchTarget != null && currentVehicle != null) {
-            CatalogPartsPickerDialog(
-                category = fetchTarget.first,
-                subfolder = fetchTarget.second,
-                existingParts = GarageCatalog.allPartsForVehicle(currentVehicle),
-                onDismiss = { subfolderForCatalogFetch = null },
-                onAddSelectedParts = { partNames, markImmediately ->
-                    val createdParts = partNames.map { pName ->
-                        PartItem(
-                            id = "cust_${Random.nextInt(100000, 999999)}",
-                            categoryId = fetchTarget.first.id,
-                            categoryName = fetchTarget.first.title,
-                            subfolderId = fetchTarget.second.id,
-                            subfolderName = fetchTarget.second.title,
-                            name = pName,
-                            isCustom = true
-                        )
-                    }
-                    val autoRecords = if (markImmediately) {
-                        createdParts.map { cp ->
-                            ReplacementRecord(
-                                id = "rec_${Random.nextInt(100000, 999999)}",
-                                partId = cp.id,
-                                date = GaragePlatform.currentDateString(),
-                                mileageKm = currentVehicle.currentMileageKm,
-                                brandOrSpec = "",
-                                note = "Označeno při načtení z katalogu"
+                        updateCurrentVehicle { v ->
+                            val updatedKm = maxOf(v.currentMileageKm, km)
+                            v.copy(
+                                currentMileageKm = updatedKm,
+                                records = listOf(newRec) + v.records
                             )
                         }
-                    } else emptyList()
-
-                    updateCurrentVehicle { v ->
-                        v.copy(
-                            customParts = v.customParts + createdParts,
-                            records = autoRecords + v.records
-                        )
+                        statusBanner = "✓ Označeno jako vyměněné: ${targetPart.name} (${formatKm(km)})"
+                        partToMarkReplaced = null
                     }
-                    subfolderForCatalogFetch = null
-                    statusBanner = "Přidáno ${createdParts.size} dílů do složky ${fetchTarget.second.title}."
-                }
-            )
-        }
+                )
+            }
 
-        // 7. Pridani vlastniho dilu do podslozky
-        val customTarget = subfolderForCustomPart
-        if (customTarget != null && currentVehicle != null) {
-            AddCustomPartDialog(
-                category = customTarget.first,
-                subfolder = customTarget.second,
-                onDismiss = { subfolderForCustomPart = null },
-                onConfirm = { name, pos, intervalKm, spec, markNow ->
-                    val newPart = PartItem(
-                        id = "cust_${Random.nextInt(100000, 999999)}",
-                        categoryId = customTarget.first.id,
-                        categoryName = customTarget.first.title,
-                        subfolderId = customTarget.second.id,
-                        subfolderName = customTarget.second.title,
-                        name = name,
-                        positionTag = pos,
-                        defaultIntervalKm = intervalKm,
-                        specHint = spec,
-                        isCustom = true
+            // 2. Dialog historie konkretniho dilu (s moznosti smazat zaznam)
+            val historyPart = partForHistoryDetail
+            if (historyPart != null && currentVehicle != null) {
+                PartHistoryDialog(
+                    part = historyPart,
+                    vehicle = currentVehicle,
+                    onDismiss = { partForHistoryDetail = null },
+                    onAddAnother = {
+                        partForHistoryDetail = null
+                        partToMarkReplaced = historyPart
+                    },
+                    onDeleteRecord = { recId ->
+                        updateCurrentVehicle { v ->
+                            v.copy(records = v.records.filterNot { it.id == recId })
+                        }
+                    }
+                )
+            }
+
+            // 3. Dialog pro nacteni/upravu auta podle VIN (dataovozidlech.cz)
+            if (showEditVehicleDialog) {
+                val editingCar = if (isAddingNewVehicle) {
+                    Vehicle(
+                        id = "car_${Random.nextInt(10000, 99999)}",
+                        name = "Nové vozidlo",
+                        vin = "",
+                        plate = "",
+                        year = 2018,
+                        engineCode = "",
+                        engineDesc = "",
+                        powerKw = 110,
+                        gearbox = "DSG / Manuál",
+                        color = "",
+                        stkUntil = "",
+                        tiresInfo = "",
+                        currentMileageKm = 150000
                     )
-                    val newRecs = if (markNow) {
-                        listOf(
+                } else {
+                    currentVehicle
+                }
+
+                if (editingCar != null) {
+                    EditVehicleVinDialog(
+                        initialVehicle = editingCar,
+                        isNew = isAddingNewVehicle,
+                        canDelete = vehicles.size > 1 && !isAddingNewVehicle,
+                        onDismiss = { showEditVehicleDialog = false },
+                        onSave = { savedCar ->
+                            if (isAddingNewVehicle) {
+                                val newList = vehicles + savedCar
+                                updateVehicles(newList)
+                                selectedVehicleId = savedCar.id
+                            } else {
+                                updateVehicles(vehicles.map { if (it.id == savedCar.id) savedCar else it })
+                            }
+                            showEditVehicleDialog = false
+                            statusBanner = "Karta vozidla ${savedCar.name} uložena."
+                        },
+                        onDelete = {
+                            val remaining = vehicles.filterNot { it.id == editingCar.id }
+                            updateVehicles(remaining)
+                            selectedVehicleId = remaining.firstOrNull()?.id ?: ""
+                            showEditVehicleDialog = false
+                        }
+                    )
+                }
+            }
+
+            // 4. Rychla uprava stavu tachometru
+            if (showQuickMileageDialog && currentVehicle != null) {
+                QuickMileageDialog(
+                    currentKm = currentVehicle.currentMileageKm,
+                    vehicleName = currentVehicle.name,
+                    onDismiss = { showQuickMileageDialog = false },
+                    onSave = { newKm ->
+                        updateCurrentVehicle { it.copy(currentMileageKm = newKm) }
+                        showQuickMileageDialog = false
+                        statusBanner = "Stav tachometru aktualizován na ${formatKm(newKm)}."
+                    }
+                )
+            }
+
+            // 5. Chytre rozklicovani hromadneho servisu z textu
+            if (showSmartParserDialog && currentVehicle != null) {
+                SmartServiceParserDialog(
+                    vehicle = currentVehicle,
+                    onDismiss = { showSmartParserDialog = false },
+                    onConfirmMultiple = { selectedParts, km, date, brand, note ->
+                        val newRecords = selectedParts.map { p ->
                             ReplacementRecord(
-                                id = "rec_${Random.nextInt(100000, 999999)}",
-                                partId = newPart.id,
-                                date = GaragePlatform.currentDateString(),
-                                mileageKm = currentVehicle.currentMileageKm
+                                id = "rec_${Random.nextInt(100000, 999999)}_${p.id}",
+                                partId = p.id,
+                                date = date,
+                                mileageKm = km,
+                                brandOrSpec = brand,
+                                note = note
                             )
-                        )
-                    } else emptyList()
-
-                    updateCurrentVehicle { v ->
-                        v.copy(
-                            customParts = v.customParts + newPart,
-                            records = newRecs + v.records
-                        )
+                        }
+                        updateCurrentVehicle { v ->
+                            v.copy(
+                                currentMileageKm = maxOf(v.currentMileageKm, km),
+                                records = newRecords + v.records
+                            )
+                        }
+                        showSmartParserDialog = false
+                        statusBanner = "✓ Hromadně zapsáno ${newRecords.size} vyměněných položek (${formatKm(km)})."
                     }
-                    subfolderForCustomPart = null
-                    statusBanner = "Díl „$name“ přidán do složky ${customTarget.second.title}."
-                }
-            )
-        }
+                )
+            }
 
-        // 8. Kompletni chronologicka historie auta
-        if (showAllHistoryDialog && currentVehicle != null) {
-            AllVehicleHistoryDialog(
-                vehicle = currentVehicle,
-                onDismiss = { showAllHistoryDialog = false },
-                onDeleteRecord = { recId ->
-                    updateCurrentVehicle { v ->
-                        v.copy(records = v.records.filterNot { it.id == recId })
+            // 6. Nacitani dalsich dilu z online katalogu do podslozky
+            val fetchTarget = subfolderForCatalogFetch
+            if (fetchTarget != null && currentVehicle != null) {
+                CatalogPartsPickerDialog(
+                    category = fetchTarget.first,
+                    subfolder = fetchTarget.second,
+                    existingParts = GarageCatalog.allPartsForVehicle(currentVehicle),
+                    onDismiss = { subfolderForCatalogFetch = null },
+                    onAddSelectedParts = { partNames, markImmediately ->
+                        val createdParts = partNames.map { pName ->
+                            PartItem(
+                                id = "cust_${Random.nextInt(100000, 999999)}",
+                                categoryId = fetchTarget.first.id,
+                                categoryName = fetchTarget.first.title,
+                                subfolderId = fetchTarget.second.id,
+                                subfolderName = fetchTarget.second.title,
+                                name = pName,
+                                isCustom = true
+                            )
+                        }
+                        val autoRecords = if (markImmediately) {
+                            createdParts.map { cp ->
+                                ReplacementRecord(
+                                    id = "rec_${Random.nextInt(100000, 999999)}",
+                                    partId = cp.id,
+                                    date = GaragePlatform.currentDateString(),
+                                    mileageKm = currentVehicle.currentMileageKm,
+                                    brandOrSpec = "",
+                                    note = "Označeno při načtení z katalogu"
+                                )
+                            }
+                        } else emptyList()
+
+                        updateCurrentVehicle { v ->
+                            v.copy(
+                                customParts = v.customParts + createdParts,
+                                records = autoRecords + v.records
+                            )
+                        }
+                        subfolderForCatalogFetch = null
+                        statusBanner = "Přidáno ${createdParts.size} dílů do složky ${fetchTarget.second.title}."
                     }
-                }
-            )
-        }
+                )
+            }
 
-        // 9. Nastaveni API klice MDCR a zalohovani databaze
-        if (showSettingsDialog) {
-            SettingsAndBackupDialog(
-                vehicles = vehicles,
-                onDismiss = { showSettingsDialog = false },
-                onRestoreVehicles = { restored ->
-                    updateVehicles(restored)
-                    selectedVehicleId = restored.firstOrNull()?.id ?: ""
-                    showSettingsDialog = false
-                    statusBanner = "Databáze garáže byla úspěšně obnovena (${restored.size} vozidel)."
-                }
-            )
+            // 7. Pridani vlastniho dilu do podslozky
+            val customTarget = subfolderForCustomPart
+            if (customTarget != null && currentVehicle != null) {
+                AddCustomPartDialog(
+                    category = customTarget.first,
+                    subfolder = customTarget.second,
+                    onDismiss = { subfolderForCustomPart = null },
+                    onConfirm = { name, pos, intervalKm, spec, markNow ->
+                        val newPart = PartItem(
+                            id = "cust_${Random.nextInt(100000, 999999)}",
+                            categoryId = customTarget.first.id,
+                            categoryName = customTarget.first.title,
+                            subfolderId = customTarget.second.id,
+                            subfolderName = customTarget.second.title,
+                            name = name,
+                            positionTag = pos,
+                            defaultIntervalKm = intervalKm,
+                            specHint = spec,
+                            isCustom = true
+                        )
+                        val newRecs = if (markNow) {
+                            listOf(
+                                ReplacementRecord(
+                                    id = "rec_${Random.nextInt(100000, 999999)}",
+                                    partId = newPart.id,
+                                    date = GaragePlatform.currentDateString(),
+                                    mileageKm = currentVehicle.currentMileageKm
+                                )
+                            )
+                        } else emptyList()
+
+                        updateCurrentVehicle { v ->
+                            v.copy(
+                                customParts = v.customParts + newPart,
+                                records = newRecs + v.records
+                            )
+                        }
+                        subfolderForCustomPart = null
+                        statusBanner = "Díl „$name“ přidán do složky ${customTarget.second.title}."
+                    }
+                )
+            }
+
+            // 8. Kompletni chronologicka historie auta
+            if (showAllHistoryDialog && currentVehicle != null) {
+                AllVehicleHistoryDialog(
+                    vehicle = currentVehicle,
+                    onDismiss = { showAllHistoryDialog = false },
+                    onDeleteRecord = { recId ->
+                        updateCurrentVehicle { v ->
+                            v.copy(records = v.records.filterNot { it.id == recId })
+                        }
+                    }
+                )
+            }
+
+            // 9. Nastaveni rezimu Den/Noc, API klice MDCR a zalohovani databaze
+            if (showSettingsDialog) {
+                SettingsAndBackupDialog(
+                    vehicles = vehicles,
+                    currentThemePref = themePref,
+                    onThemePrefChange = { newMode ->
+                        themePref = newMode
+                        GaragePlatform.saveString("garaz_theme_mode_v1", newMode.toString())
+                    },
+                    onDismiss = { showSettingsDialog = false },
+                    onRestoreVehicles = { restored ->
+                        updateVehicles(restored)
+                        selectedVehicleId = restored.firstOrNull()?.id ?: ""
+                        showSettingsDialog = false
+                        statusBanner = "Databáze garáže byla úspěšně obnovena (${restored.size} vozidel)."
+                    }
+                )
+            }
         }
     }
 }
@@ -626,12 +697,13 @@ private fun VehicleSummaryCard(
     onQuickKmClick: () -> Unit,
     onSmartParseClick: () -> Unit
 ) {
+    val p = LocalGaragePalette.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(CardDark)
-            .border(1.dp, BorderSlate, RoundedCornerShape(12.dp))
+            .background(p.card)
+            .border(1.dp, p.border, RoundedCornerShape(12.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -646,7 +718,7 @@ private fun VehicleSummaryCard(
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = TextWhite,
+                color = p.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
@@ -654,8 +726,8 @@ private fun VehicleSummaryCard(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(CardDarker)
-                    .border(1.dp, AccentSky.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .background(p.cardSub)
+                    .border(1.dp, p.accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                     .clickable { onEditVinOrVehicle() }
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
@@ -666,17 +738,17 @@ private fun VehicleSummaryCard(
                     maxLines = 1,
                     softWrap = false,
                     fontWeight = FontWeight.Bold,
-                    color = AccentSky
+                    color = p.accent
                 )
             }
         }
 
-        // Technicke udaje pres celou sirku karty (kompaktni radkovani)
+        // Technicke udaje pres celou sirku karty
         Text(
             text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }}",
             fontSize = 12.sp,
             lineHeight = 15.sp,
-            color = AccentSky,
+            color = p.accent,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -686,7 +758,7 @@ private fun VehicleSummaryCard(
             text = "Motor: ${vehicle.engineCode} (${vehicle.engineDesc}, ${vehicle.powerKw} kW) • ${vehicle.gearbox}",
             fontSize = 11.sp,
             lineHeight = 14.sp,
-            color = TextMuted,
+            color = p.textMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth()
@@ -696,7 +768,7 @@ private fun VehicleSummaryCard(
                 text = "STK do: ${vehicle.stkUntil.ifBlank { "-" }} • Pneu: ${vehicle.tiresInfo.ifBlank { "-" }}",
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
-                color = TextMuted,
+                color = p.textMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth()
@@ -713,41 +785,41 @@ private fun VehicleSummaryCard(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(9.dp))
-                    .background(CardDarker)
-                    .border(1.dp, BorderSlate, RoundedCornerShape(9.dp))
+                    .background(p.cardSub)
+                    .border(1.dp, p.border, RoundedCornerShape(9.dp))
                     .clickable { onQuickKmClick() }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text("Tachometr (upravit)", fontSize = 10.sp, lineHeight = 12.sp, color = TextMuted)
+                    Text("Tachometr (upravit)", fontSize = 10.sp, lineHeight = 12.sp, color = p.textMuted)
                     Text(
                         text = formatKm(vehicle.currentMileageKm),
                         fontSize = 14.sp,
                         lineHeight = 17.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = TextWhite
+                        color = p.textPrimary
                     )
                 }
-                Text("✎", fontSize = 15.sp, color = AccentSky)
+                Text("✎", fontSize = 15.sp, color = p.accent)
             }
 
             Column(
                 modifier = Modifier
                     .clip(RoundedCornerShape(9.dp))
-                    .background(GreenBg.copy(alpha = 0.55f))
-                    .border(1.dp, GreenOk.copy(alpha = 0.6f), RoundedCornerShape(9.dp))
+                    .background(p.greenBg)
+                    .border(1.dp, p.greenOk.copy(alpha = 0.6f), RoundedCornerShape(9.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Vyměněno dílů", fontSize = 10.sp, lineHeight = 12.sp, color = TextWhite)
+                Text("Vyměněno dílů", fontSize = 10.sp, lineHeight = 12.sp, color = p.textPrimary)
                 Text(
                     text = "$replacedCount / $totalPartsCount",
                     fontSize = 14.sp,
                     lineHeight = 17.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = GreenOk
+                    color = p.greenOk
                 )
             }
         }
@@ -757,8 +829,8 @@ private fun VehicleSummaryCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(9.dp))
-                .background(AccentSky.copy(alpha = 0.16f))
-                .border(1.dp, AccentSky, RoundedCornerShape(9.dp))
+                .background(p.accent.copy(alpha = 0.14f))
+                .border(1.dp, p.accent, RoundedCornerShape(9.dp))
                 .clickable { onSmartParseClick() }
                 .padding(vertical = 7.dp),
             contentAlignment = Alignment.Center
@@ -770,7 +842,7 @@ private fun VehicleSummaryCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Bold,
-                color = AccentSky
+                color = p.accent
             )
         }
     }
@@ -791,14 +863,15 @@ private fun CategoryTreeCard(
     onFetchExtraParts: (SubfolderDef) -> Unit,
     onAddCustomPart: (SubfolderDef) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(CardDark)
-            .border(1.dp, if (isExpanded) AccentSky.copy(alpha = 0.6f) else BorderSlate, RoundedCornerShape(12.dp))
+            .background(p.card)
+            .border(1.dp, if (isExpanded) p.accent.copy(alpha = 0.6f) else p.border, RoundedCornerShape(12.dp))
     ) {
-        // Hlavicka hlavni sekce (napr. Motor, Podvozek, Brzdy)
+        // Hlavicka hlavni sekce
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -816,13 +889,13 @@ private fun CategoryTreeCard(
                         fontSize = 15.sp,
                         lineHeight = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextWhite
+                        color = p.textPrimary
                     )
                     Text(
                         text = "${category.subfolders.size} podsložek • ${allCategoryParts.size} dílů",
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
-                        color = TextMuted
+                        color = p.textMuted
                     )
                 }
             }
@@ -831,8 +904,8 @@ private fun CategoryTreeCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(GreenBg)
-                            .border(1.dp, GreenOk, RoundedCornerShape(8.dp))
+                            .background(p.greenBg)
+                            .border(1.dp, p.greenOk, RoundedCornerShape(8.dp))
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
@@ -841,11 +914,11 @@ private fun CategoryTreeCard(
                             maxLines = 1,
                             softWrap = false,
                             fontWeight = FontWeight.Bold,
-                            color = GreenOk
+                            color = p.greenOk
                         )
                     }
                 }
-                Text(if (isExpanded) "▲" else "▼", fontSize = 13.sp, color = AccentSky)
+                Text(if (isExpanded) "▲" else "▼", fontSize = 13.sp, color = p.accent)
             }
         }
 
@@ -854,23 +927,23 @@ private fun CategoryTreeCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(CardDarker)
+                    .background(p.cardSub)
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 category.subfolders.forEach { sub ->
                     val subParts = allCategoryParts.filter { it.subfolderId == sub.id }
-                    val subReplaced = subParts.count { p -> vehicle.records.any { it.partId == p.id } }
+                    val subReplaced = subParts.count { part -> vehicle.records.any { it.partId == part.id } }
                     val isSubExpanded = expandedSubfolderIds.contains(sub.id)
 
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(CardDark)
+                            .background(p.card)
                             .border(
                                 1.dp,
-                                if (isSubExpanded) AccentSky.copy(alpha = 0.4f) else BorderSlate,
+                                if (isSubExpanded) p.accent.copy(alpha = 0.4f) else p.border,
                                 RoundedCornerShape(10.dp)
                             )
                     ) {
@@ -890,7 +963,7 @@ private fun CategoryTreeCard(
                                     fontSize = 13.sp,
                                     lineHeight = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = TextWhite
+                                    color = p.textPrimary
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -900,9 +973,9 @@ private fun CategoryTreeCard(
                                     maxLines = 1,
                                     softWrap = false,
                                     fontWeight = if (subReplaced > 0) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (subReplaced > 0) GreenOk else TextMuted
+                                    color = if (subReplaced > 0) p.greenOk else p.textMuted
                                 )
-                                Text(if (isSubExpanded) "−" else "+", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AccentSky)
+                                Text(if (isSubExpanded) "−" else "+", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.accent)
                             }
                         }
 
@@ -938,8 +1011,8 @@ private fun CategoryTreeCard(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(CardDarker)
-                                            .border(1.dp, AccentSky.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .background(p.cardSub)
+                                            .border(1.dp, p.accent.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                             .clickable { onFetchExtraParts(sub) }
                                             .padding(vertical = 8.dp),
                                         contentAlignment = Alignment.Center
@@ -950,14 +1023,14 @@ private fun CategoryTreeCard(
                                             maxLines = 1,
                                             softWrap = false,
                                             fontWeight = FontWeight.Bold,
-                                            color = AccentSky
+                                            color = p.accent
                                         )
                                     }
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(CardDarker)
-                                            .border(1.dp, BorderSlate, RoundedCornerShape(8.dp))
+                                            .background(p.cardSub)
+                                            .border(1.dp, p.border, RoundedCornerShape(8.dp))
                                             .clickable { onAddCustomPart(sub) }
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                         contentAlignment = Alignment.Center
@@ -968,7 +1041,7 @@ private fun CategoryTreeCard(
                                             maxLines = 1,
                                             softWrap = false,
                                             fontWeight = FontWeight.Bold,
-                                            color = TextWhite
+                                            color = p.textPrimary
                                         )
                                     }
                                 }
@@ -990,6 +1063,7 @@ private fun PartRowCard(
     onMarkReplaced: () -> Unit,
     onShowHistory: () -> Unit
 ) {
+    val p = LocalGaragePalette.current
     val lastRec = records.firstOrNull()
     val isReplaced = lastRec != null
     val drivenSinceLast = if (lastRec != null) (vehicleMileage - lastRec.mileageKm).coerceAtLeast(0) else 0
@@ -998,13 +1072,17 @@ private fun PartRowCard(
     } else null
 
     val borderColor = when {
-        remainingKm != null && remainingKm < 0 -> RedAlert
-        remainingKm != null && remainingKm <= 3000 -> AmberWarn
-        isReplaced -> GreenOk.copy(alpha = 0.8f)
-        else -> BorderSlate
+        remainingKm != null && remainingKm < 0 -> p.redAlert
+        remainingKm != null && remainingKm <= 3000 -> p.amberWarn
+        isReplaced -> p.greenOk.copy(alpha = 0.8f)
+        else -> p.border
     }
 
-    val bgColor = if (isReplaced) GreenBg.copy(alpha = 0.28f) else CardDarker
+    val bgColor = if (isReplaced) {
+        if (p.isDark) p.greenBg.copy(alpha = 0.28f) else p.greenBg.copy(alpha = 0.55f)
+    } else {
+        p.cardSub
+    }
 
     Row(
         modifier = Modifier
@@ -1025,7 +1103,7 @@ private fun PartRowCard(
                     text = "${part.categoryName} → ${part.subfolderName}",
                     fontSize = 10.sp,
                     lineHeight = 13.sp,
-                    color = AccentSky
+                    color = p.accent
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1033,10 +1111,10 @@ private fun PartRowCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(5.dp))
-                            .background(AccentSky.copy(alpha = 0.2f))
+                            .background(p.accent.copy(alpha = 0.18f))
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
-                        Text(part.positionTag, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
+                        Text(part.positionTag, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
                     }
                     Spacer(Modifier.width(6.dp))
                 }
@@ -1045,14 +1123,14 @@ private fun PartRowCard(
                     fontSize = 13.sp,
                     lineHeight = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextWhite
+                    color = p.textPrimary
                 )
             }
 
             if (part.specHint.isNotBlank() || part.defaultIntervalKm > 0) {
                 val intervalTxt = if (part.defaultIntervalKm > 0) "Interval: ${formatKm(part.defaultIntervalKm)}" else ""
                 val combined = listOf(part.specHint, intervalTxt).filter { it.isNotBlank() }.joinToString(" • ")
-                Text(combined, fontSize = 11.sp, lineHeight = 14.sp, color = TextMuted)
+                Text(combined, fontSize = 11.sp, lineHeight = 14.sp, color = p.textMuted)
             }
 
             if (lastRec != null) {
@@ -1062,11 +1140,11 @@ private fun PartRowCard(
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = GreenOk
+                    color = p.greenOk
                 )
                 if (lastRec.brandOrSpec.isNotBlank() || lastRec.note.isNotBlank()) {
                     val info = listOf(lastRec.brandOrSpec, lastRec.note).filter { it.isNotBlank() }.joinToString(" – ")
-                    Text("Díl / pozn.: $info", fontSize = 11.sp, lineHeight = 14.sp, color = TextWhite.copy(alpha = 0.85f))
+                    Text("Díl / pozn.: $info", fontSize = 11.sp, lineHeight = 14.sp, color = p.textPrimary.copy(alpha = 0.85f))
                 }
                 if (remainingKm != null) {
                     val statusTxt = if (remainingKm >= 0) {
@@ -1075,9 +1153,9 @@ private fun PartRowCard(
                         "⚠ Překročen interval o ${formatKm(-remainingKm)}!"
                     }
                     val statusCol = when {
-                        remainingKm < 0 -> RedAlert
-                        remainingKm <= 3000 -> AmberWarn
-                        else -> AccentSky
+                        remainingKm < 0 -> p.redAlert
+                        remainingKm <= 3000 -> p.amberWarn
+                        else -> p.accent
                     }
                     Text(statusTxt, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, color = statusCol)
                 }
@@ -1088,7 +1166,7 @@ private fun PartRowCard(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (isReplaced) GreenOk else AccentSky)
+                    .background(if (isReplaced) p.greenOk else p.accent)
                     .clickable { onMarkReplaced() }
                     .padding(horizontal = 9.dp, vertical = 6.dp)
             ) {
@@ -1098,7 +1176,7 @@ private fun PartRowCard(
                     maxLines = 1,
                     softWrap = false,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.Black
+                    color = p.onAccent
                 )
             }
             if (records.isNotEmpty()) {
@@ -1107,7 +1185,7 @@ private fun PartRowCard(
                     fontSize = 10.sp,
                     maxLines = 1,
                     softWrap = false,
-                    color = AccentSky,
+                    color = p.accent,
                     modifier = Modifier.clickable { onShowHistory() }.padding(2.dp)
                 )
             }
@@ -1122,6 +1200,7 @@ private fun MarkPartReplacedDialog(
     onDismiss: () -> Unit,
     onConfirm: (km: Int, date: String, brand: String, note: String) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     var kmText by remember { mutableStateOf(vehicle.currentMileageKm.toString()) }
     var dateText by remember { mutableStateOf(GaragePlatform.currentDateString()) }
     var brandText by remember { mutableStateOf("") }
@@ -1132,17 +1211,17 @@ private fun MarkPartReplacedDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("✓ Označit díl jako vyměněný", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = GreenOk)
-            Text("${part.categoryName} → ${part.subfolderName}", fontSize = 11.sp, color = AccentSky)
-            Text(part.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextWhite)
+            Text("✓ Označit díl jako vyměněný", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = p.greenOk)
+            Text("${part.categoryName} → ${part.subfolderName}", fontSize = 11.sp, color = p.accent)
+            Text(part.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
             if (part.specHint.isNotBlank()) {
-                Text("Specifikace: ${part.specHint}", fontSize = 12.sp, color = TextMuted)
+                Text("Specifikace: ${part.specHint}", fontSize = 12.sp, color = p.textMuted)
             }
 
             OutlinedTextField(
@@ -1182,7 +1261,7 @@ private fun MarkPartReplacedDialog(
                 horizontalArrangement = Arrangement.End
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Zrušit", color = TextMuted)
+                    Text("Zrušit", color = p.textMuted)
                 }
                 Spacer(Modifier.width(8.dp))
                 Button(
@@ -1190,9 +1269,9 @@ private fun MarkPartReplacedDialog(
                         val km = kmText.toIntOrNull() ?: vehicle.currentMileageKm
                         onConfirm(km, dateText.ifBlank { GaragePlatform.currentDateString() }, brandText.trim(), noteText.trim())
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("✓ Uložit výměnu", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("✓ Uložit výměnu", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1207,6 +1286,7 @@ private fun PartHistoryDialog(
     onAddAnother: () -> Unit,
     onDeleteRecord: (String) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     val records = vehicle.records.filter { it.partId == part.id }.sortedByDescending { it.mileageKm }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -1214,16 +1294,16 @@ private fun PartHistoryDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, BorderSlate, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.border, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(part.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = TextWhite)
-            Text("Historie výměn tohoto dílu (${records.size}x)", fontSize = 12.sp, color = AccentSky)
+            Text(part.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.textPrimary)
+            Text("Historie výměn tohoto dílu (${records.size}x)", fontSize = 12.sp, color = p.accent)
 
             if (records.isEmpty()) {
-                Text("Zatím žádný záznam o výměně.", fontSize = 13.sp, color = TextMuted)
+                Text("Zatím žádný záznam o výměně.", fontSize = 13.sp, color = p.textMuted)
             } else {
                 Column(
                     modifier = Modifier
@@ -1238,7 +1318,8 @@ private fun PartHistoryDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(CardDarker)
+                                .background(p.cardSub)
+                                .border(1.dp, p.border, RoundedCornerShape(10.dp))
                                 .padding(10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -1248,20 +1329,20 @@ private fun PartHistoryDialog(
                                     "${formatKm(r.mileageKm)} • ${r.date}",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = GreenOk
+                                    color = p.greenOk
                                 )
-                                Text("Najeto od této výměny: ${formatKm(driven)}", fontSize = 11.sp, color = TextMuted)
+                                Text("Najeto od této výměny: ${formatKm(driven)}", fontSize = 11.sp, color = p.textMuted)
                                 if (r.brandOrSpec.isNotBlank()) {
-                                    Text("Díl: ${r.brandOrSpec}", fontSize = 12.sp, color = TextWhite)
+                                    Text("Díl: ${r.brandOrSpec}", fontSize = 12.sp, color = p.textPrimary)
                                 }
                                 if (r.note.isNotBlank()) {
-                                    Text("Pozn.: ${r.note}", fontSize = 12.sp, color = TextMuted)
+                                    Text("Pozn.: ${r.note}", fontSize = 12.sp, color = p.textMuted)
                                 }
                             }
                             Text(
                                 "🗑 Smazat",
                                 fontSize = 11.sp,
-                                color = RedAlert,
+                                color = p.redAlert,
                                 modifier = Modifier
                                     .clickable { onDeleteRecord(r.id) }
                                     .padding(6.dp)
@@ -1276,13 +1357,13 @@ private fun PartHistoryDialog(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Zavřít", color = TextMuted)
+                    Text("Zavřít", color = p.textMuted)
                 }
                 Button(
                     onClick = onAddAnother,
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("+ Zapsat novou výměnu", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("+ Zapsat novou výměnu", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1298,6 +1379,7 @@ private fun EditVehicleVinDialog(
     onSave: (Vehicle) -> Unit,
     onDelete: () -> Unit
 ) {
+    val p = LocalGaragePalette.current
     val scope = rememberCoroutineScope()
     var vin by remember { mutableStateOf(initialVehicle.vin) }
     var name by remember { mutableStateOf(initialVehicle.name) }
@@ -1319,8 +1401,8 @@ private fun EditVehicleVinDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1329,7 +1411,7 @@ private fun EditVehicleVinDialog(
                 if (isNew) "Přidat vozidlo podle VIN" else "Karta vozidla & Načtení VIN",
                 fontSize = 17.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = AccentSky
+                color = p.accent
             )
 
             OutlinedTextField(
@@ -1366,17 +1448,17 @@ private fun EditVehicleVinDialog(
                 },
                 enabled = !loadingVin,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                colors = ButtonDefaults.buttonColors(containerColor = p.accent)
             ) {
                 Text(
                     if (loadingVin) "Načítám..." else "🔍 Načíst vozidlo a motor podle VIN",
-                    color = Color.Black,
+                    color = p.onAccent,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
 
             if (vinMessage != null) {
-                Text(vinMessage ?: "", fontSize = 11.sp, color = GreenOk)
+                Text(vinMessage ?: "", fontSize = 11.sp, color = p.greenOk)
             }
 
             OutlinedTextField(
@@ -1463,14 +1545,14 @@ private fun EditVehicleVinDialog(
             ) {
                 if (canDelete) {
                     TextButton(onClick = onDelete) {
-                        Text("Smazat auto", color = RedAlert)
+                        Text("Smazat auto", color = p.redAlert)
                     }
                 } else {
                     Spacer(Modifier.width(1.dp))
                 }
                 Row {
                     TextButton(onClick = onDismiss) {
-                        Text("Zrušit", color = TextMuted)
+                        Text("Zrušit", color = p.textMuted)
                     }
                     Spacer(Modifier.width(6.dp))
                     Button(
@@ -1492,9 +1574,9 @@ private fun EditVehicleVinDialog(
                                 )
                             )
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                        colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                     ) {
-                        Text("Uložit vozidlo", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("Uložit vozidlo", color = p.onAccent, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1509,19 +1591,20 @@ private fun QuickMileageDialog(
     onDismiss: () -> Unit,
     onSave: (Int) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     var kmText by remember { mutableStateOf(currentKm.toString()) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Aktualizovat stav tachometru", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextWhite)
-            Text(vehicleName, fontSize = 12.sp, color = AccentSky)
+            Text("Aktualizovat stav tachometru", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            Text(vehicleName, fontSize = 12.sp, color = p.accent)
             OutlinedTextField(
                 value = kmText,
                 onValueChange = { kmText = it.filter { c -> c.isDigit() } },
@@ -1531,13 +1614,13 @@ private fun QuickMileageDialog(
                 modifier = Modifier.fillMaxWidth()
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Zrušit", color = TextMuted) }
+                TextButton(onClick = onDismiss) { Text("Zrušit", color = p.textMuted) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = { onSave(kmText.toIntOrNull() ?: currentKm) },
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                 ) {
-                    Text("Uložit km", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("Uložit km", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1550,6 +1633,7 @@ private fun SmartServiceParserDialog(
     onDismiss: () -> Unit,
     onConfirmMultiple: (List<PartItem>, Int, String, String, String) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     val allParts = remember(vehicle) { GarageCatalog.allPartsForVehicle(vehicle) }
     var rawText by remember { mutableStateOf("") }
     var kmText by remember { mutableStateOf(vehicle.currentMileageKm.toString()) }
@@ -1562,17 +1646,17 @@ private fun SmartServiceParserDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("⚡ Chytré rozklíčování servisu", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
+            Text("⚡ Chytré rozklíčování servisu", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
             Text(
                 "Napiš jednou větou, co se na autě dělalo (např. „výměna oleje a všech filtrů, přední kotouče a destičky, levý čep řízení“). Aplikace sama najde příslušné díly ve stromu:",
                 fontSize = 11.sp,
-                color = TextMuted
+                color = p.textMuted
             )
 
             OutlinedTextField(
@@ -1580,7 +1664,7 @@ private fun SmartServiceParserDialog(
                 onValueChange = {
                     rawText = it
                     val matched = GarageCatalog.parseServiceTextToParts(it, allParts)
-                    selectedIds = matched.map { p -> p.id }.toSet()
+                    selectedIds = matched.map { item -> item.id }.toSet()
                 },
                 label = { Text("Popis provedeného servisu") },
                 modifier = Modifier.fillMaxWidth()
@@ -1616,34 +1700,35 @@ private fun SmartServiceParserDialog(
                 "Rozpoznané položky k označení (${selectedIds.size}):",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = GreenOk
+                color = p.greenOk
             )
 
             val matchedParts = allParts.filter { selectedIds.contains(it.id) }
             if (matchedParts.isEmpty()) {
-                Text("Zatím žádné položky – napiš text výše.", fontSize = 12.sp, color = TextMuted)
+                Text("Zatím žádné položky – napiš text výše.", fontSize = 12.sp, color = p.textMuted)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    matchedParts.forEach { p ->
+                    matchedParts.forEach { part ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(GreenBg.copy(alpha = 0.5f))
-                                .clickable { selectedIds = selectedIds - p.id }
+                                .background(p.greenBg)
+                                .border(1.dp, p.greenOk, RoundedCornerShape(8.dp))
+                                .clickable { selectedIds = selectedIds - part.id }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("✓ ${p.name} (${p.subfolderName})", fontSize = 12.sp, color = TextWhite, modifier = Modifier.weight(1f))
-                            Text("✕", fontSize = 12.sp, color = TextMuted)
+                            Text("✓ ${part.name} (${part.subfolderName})", fontSize = 12.sp, color = p.textPrimary, modifier = Modifier.weight(1f))
+                            Text("✕", fontSize = 12.sp, color = p.textMuted)
                         }
                     }
                 }
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Zrušit", color = TextMuted) }
+                TextButton(onClick = onDismiss) { Text("Zrušit", color = p.textMuted) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
@@ -1659,9 +1744,9 @@ private fun SmartServiceParserDialog(
                         }
                     },
                     enabled = selectedIds.isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("✓ Označit vše (${selectedIds.size})", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("✓ Označit vše (${selectedIds.size})", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1676,6 +1761,7 @@ private fun CatalogPartsPickerDialog(
     onDismiss: () -> Unit,
     onAddSelectedParts: (List<String>, Boolean) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     var loading by remember { mutableStateOf(true) }
     var fetchedNames by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedNames by remember { mutableStateOf(setOf<String>()) }
@@ -1696,20 +1782,20 @@ private fun CatalogPartsPickerDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("📥 Katalog dílů: ${subfolder.title}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
-            Text("Vyber díly, které chceš přidat do této podsložky:", fontSize = 12.sp, color = TextMuted)
+            Text("📥 Katalog dílů: ${subfolder.title}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
+            Text("Vyber díly, které chceš přidat do této podsložky:", fontSize = 12.sp, color = p.textMuted)
 
             if (loading) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = AccentSky)
+                    CircularProgressIndicator(color = p.accent)
                 }
             } else if (fetchedNames.isEmpty()) {
-                Text("Všechny dostupné díly z katalogu už v této složce máš.", fontSize = 13.sp, color = GreenOk)
+                Text("Všechny dostupné díly z katalogu už v této složce máš.", fontSize = 13.sp, color = p.greenOk)
             } else {
                 Column(
                     modifier = Modifier
@@ -1724,17 +1810,17 @@ private fun CatalogPartsPickerDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) AccentSky.copy(alpha = 0.2f) else CardDarker)
-                                .border(1.dp, if (isSel) AccentSky else BorderSlate, RoundedCornerShape(8.dp))
+                                .background(if (isSel) p.accent.copy(alpha = 0.18f) else p.cardSub)
+                                .border(1.dp, if (isSel) p.accent else p.border, RoundedCornerShape(8.dp))
                                 .clickable {
                                     selectedNames = if (isSel) selectedNames - name else selectedNames + name
                                 }
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(if (isSel) "☑" else "☐", fontSize = 15.sp, color = if (isSel) AccentSky else TextMuted)
+                            Text(if (isSel) "☑" else "☐", fontSize = 15.sp, color = if (isSel) p.accent else p.textMuted)
                             Spacer(Modifier.width(8.dp))
-                            Text(name, fontSize = 13.sp, color = TextWhite)
+                            Text(name, fontSize = 13.sp, color = p.textPrimary)
                         }
                     }
                 }
@@ -1746,22 +1832,22 @@ private fun CatalogPartsPickerDialog(
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (markImmediately) "☑" else "☐", fontSize = 16.sp, color = GreenOk)
+                    Text(if (markImmediately) "☑" else "☐", fontSize = 16.sp, color = p.greenOk)
                     Spacer(Modifier.width(8.dp))
-                    Text("Rovnou je označit jako vyměněné při aktuálních km", fontSize = 12.sp, color = TextWhite)
+                    Text("Rovnou je označit jako vyměněné při aktuálních km", fontSize = 12.sp, color = p.textPrimary)
                 }
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Zavřít", color = TextMuted) }
+                TextButton(onClick = onDismiss) { Text("Zavřít", color = p.textMuted) }
                 if (fetchedNames.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = { onAddSelectedParts(selectedNames.toList(), markImmediately) },
                         enabled = selectedNames.isNotEmpty(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                        colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                     ) {
-                        Text("Přidat vybrané (${selectedNames.size})", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("Přidat vybrané (${selectedNames.size})", color = p.onAccent, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1776,6 +1862,7 @@ private fun AddCustomPartDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, pos: String, intervalKm: Int, spec: String, markNow: Boolean) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     var name by remember { mutableStateOf("") }
     var pos by remember { mutableStateOf("") }
     var intervalText by remember { mutableStateOf("") }
@@ -1787,13 +1874,13 @@ private fun AddCustomPartDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("+ Přidat vlastní díl", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
-            Text("${category.title} → ${subfolder.title}", fontSize = 12.sp, color = TextMuted)
+            Text("+ Přidat vlastní díl", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
+            Text("${category.title} → ${subfolder.title}", fontSize = 12.sp, color = p.textMuted)
 
             OutlinedTextField(
                 value = name,
@@ -1830,12 +1917,12 @@ private fun AddCustomPartDialog(
                 modifier = Modifier.clickable { markNow = !markNow }.padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(if (markNow) "☑" else "☐", fontSize = 16.sp, color = GreenOk)
+                Text(if (markNow) "☑" else "☐", fontSize = 16.sp, color = p.greenOk)
                 Spacer(Modifier.width(8.dp))
-                Text("Rovnou označit jako vyměněný", fontSize = 13.sp, color = TextWhite)
+                Text("Rovnou označit jako vyměněný", fontSize = 13.sp, color = p.textPrimary)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Zrušit", color = TextMuted) }
+                TextButton(onClick = onDismiss) { Text("Zrušit", color = p.textMuted) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
@@ -1844,9 +1931,9 @@ private fun AddCustomPartDialog(
                         }
                     },
                     enabled = name.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("Uložit díl", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("Uložit díl", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1859,6 +1946,7 @@ private fun AllVehicleHistoryDialog(
     onDismiss: () -> Unit,
     onDeleteRecord: (String) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     val allPartsMap = remember(vehicle) {
         GarageCatalog.allPartsForVehicle(vehicle).associateBy { it.id }
     }
@@ -1869,16 +1957,16 @@ private fun AllVehicleHistoryDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("📜 Servisní knížka: ${vehicle.name}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
-            Text("Celkem záznamů o výměně: ${sortedRecords.size}", fontSize = 12.sp, color = TextMuted)
+            Text("📜 Servisní knížka: ${vehicle.name}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
+            Text("Celkem záznamů o výměně: ${sortedRecords.size}", fontSize = 12.sp, color = p.textMuted)
 
             if (sortedRecords.isEmpty()) {
-                Text("Zatím nebyl označen žádný vyměněný díl.", fontSize = 13.sp, color = TextMuted)
+                Text("Zatím nebyl označen žádný vyměněný díl.", fontSize = 13.sp, color = p.textMuted)
             } else {
                 Column(
                     modifier = Modifier
@@ -1893,7 +1981,8 @@ private fun AllVehicleHistoryDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(CardDarker)
+                                .background(p.cardSub)
+                                .border(1.dp, p.border, RoundedCornerShape(10.dp))
                                 .padding(10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -1903,26 +1992,26 @@ private fun AllVehicleHistoryDialog(
                                     part?.name ?: rec.partId,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = TextWhite
+                                    color = p.textPrimary
                                 )
                                 Text(
                                     "${formatKm(rec.mileageKm)} • ${rec.date}",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = GreenOk
+                                    color = p.greenOk
                                 )
                                 if (rec.brandOrSpec.isNotBlank() || rec.note.isNotBlank()) {
                                     Text(
                                         listOf(rec.brandOrSpec, rec.note).filter { it.isNotBlank() }.joinToString(" – "),
                                         fontSize = 11.sp,
-                                        color = TextMuted
+                                        color = p.textMuted
                                     )
                                 }
                             }
                             Text(
                                 "🗑",
                                 fontSize = 14.sp,
-                                color = RedAlert,
+                                color = p.redAlert,
                                 modifier = Modifier.clickable { onDeleteRecord(rec.id) }.padding(6.dp)
                             )
                         }
@@ -1931,8 +2020,8 @@ private fun AllVehicleHistoryDialog(
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = AccentSky)) {
-                    Text("Zavřít", color = Color.Black, fontWeight = FontWeight.Bold)
+                Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = p.accent)) {
+                    Text("Zavřít", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1942,9 +2031,12 @@ private fun AllVehicleHistoryDialog(
 @Composable
 private fun SettingsAndBackupDialog(
     vehicles: List<Vehicle>,
+    currentThemePref: Int,
+    onThemePrefChange: (Int) -> Unit,
     onDismiss: () -> Unit,
     onRestoreVehicles: (List<Vehicle>) -> Unit
 ) {
+    val p = LocalGaragePalette.current
     var apiKey by remember { mutableStateOf(GarageStorage.loadApiKey()) }
     var backupText by remember { mutableStateOf("") }
     var infoMsg by remember { mutableStateOf<String?>(null) }
@@ -1954,18 +2046,30 @@ private fun SettingsAndBackupDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .border(1.dp, AccentSky, RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("⚙️ Nastavení & Záloha", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AccentSky)
+            Text("⚙️ Nastavení & Záloha", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
+
+            Text("Vzhled aplikace (Den / Noc):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChipBtn("📱 Podle systému", currentThemePref == 0) { onThemePrefChange(0) }
+                FilterChipBtn("☀️ Den (Světlý)", currentThemePref == 1) { onThemePrefChange(1) }
+                FilterChipBtn("🌙 Noc (Tmavý)", currentThemePref == 2) { onThemePrefChange(2) }
+            }
+
+            HorizontalDivider(color = p.border)
 
             Text(
                 "API klíč z portálu dataovozidlech.cz (volitelné – pro automatické stahování kompletních dat z velkého TP):",
                 fontSize = 11.sp,
-                color = TextMuted
+                color = p.textMuted
             )
             OutlinedTextField(
                 value = apiKey,
@@ -1978,9 +2082,9 @@ private fun SettingsAndBackupDialog(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            HorizontalDivider(color = BorderSlate)
+            HorizontalDivider(color = p.border)
 
-            Text("Záloha a přenos databází mezi telefony:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextWhite)
+            Text("Záloha a přenos databází mezi telefony:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -1991,9 +2095,9 @@ private fun SettingsAndBackupDialog(
                         infoMsg = "✓ Záloha zkopírována do schránky."
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                 ) {
-                    Text("Kopírovat zálohu", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Kopírovat zálohu", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
                 Button(
                     onClick = {
@@ -2005,9 +2109,9 @@ private fun SettingsAndBackupDialog(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenOk)
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("Obnovit ze zálohy", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Obnovit ze zálohy", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
@@ -2019,11 +2123,11 @@ private fun SettingsAndBackupDialog(
             )
 
             if (infoMsg != null) {
-                Text(infoMsg ?: "", fontSize = 12.sp, color = GreenOk)
+                Text(infoMsg ?: "", fontSize = 12.sp, color = p.greenOk)
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Hotovo", color = AccentSky, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onDismiss) { Text("Hotovo", color = p.accent, fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -2031,11 +2135,12 @@ private fun SettingsAndBackupDialog(
 
 @Composable
 private fun SmallTopButton(text: String, onClick: () -> Unit) {
+    val p = LocalGaragePalette.current
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(CardDark)
-            .border(1.dp, BorderSlate, RoundedCornerShape(8.dp))
+            .background(p.card)
+            .border(1.dp, p.border, RoundedCornerShape(8.dp))
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
@@ -2046,18 +2151,19 @@ private fun SmallTopButton(text: String, onClick: () -> Unit) {
             maxLines = 1,
             softWrap = false,
             fontWeight = FontWeight.SemiBold,
-            color = TextWhite
+            color = p.textPrimary
         )
     }
 }
 
 @Composable
 private fun FilterChipBtn(label: String, active: Boolean, onClick: () -> Unit) {
+    val p = LocalGaragePalette.current
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(if (active) AccentSky.copy(alpha = 0.22f) else CardDarker)
-            .border(1.dp, if (active) AccentSky else BorderSlate, RoundedCornerShape(8.dp))
+            .background(if (active) p.accent.copy(alpha = 0.2f) else p.cardSub)
+            .border(1.dp, if (active) p.accent else p.border, RoundedCornerShape(8.dp))
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
@@ -2068,7 +2174,7 @@ private fun FilterChipBtn(label: String, active: Boolean, onClick: () -> Unit) {
             maxLines = 1,
             softWrap = false,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            color = if (active) AccentSky else TextMuted
+            color = if (active) p.accent else p.textMuted
         )
     }
 }

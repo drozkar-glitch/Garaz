@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Strecha garaze -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,24L22,42v6h6l26,-15l26,15h6v-6L54,24z" />
+    <!-- Ram garaze -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M28,46h6v34h-6zM74,46h6v34h-6z" />
+    <!-- Silueta auta uvnitr garaze -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M41,52l-5,10v14h6v-5h24v5h6V62l-5,-10H41zM43.5,55h21l3,6h-27L43.5,55z" />
+    <!-- Svetla auta -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M39,64h5v3h-5zM64,64h5v3h-5z" />
+    <!-- Spodni linka -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M24,80h60v3h-60z" />
+</vector>
