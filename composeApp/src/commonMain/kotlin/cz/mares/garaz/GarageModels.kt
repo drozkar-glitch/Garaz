@@ -697,7 +697,6 @@ object VinAndCatalogService {
         )
     }
 
-    // Vytahne a vycisti jak zakladni pneu z NapravyPneuRafky, tak vsechny alternativni pneu a rafky z DalsiZaznamy
     private fun parseAllTiresFromTp(rawBase: String, rawNotes: String): String {
         val uniqueItems = linkedSetOf<String>()
 
@@ -715,10 +714,9 @@ object VinAndCatalogService {
         val cleanedBase = cleanChunk(rawBase)
         val cleanedNotes = cleanChunk(rawNotes)
 
-        // 1. Rozmery pneu + rafku ze zakladniho pole NapravyPneuRafky
         cleanedBase.split("\n", ";").forEach { line ->
             val trimmed = line
-                .replace(Regex("""^[1-4]\s*[:.-]\s*"""), "") // odstrani prefix napravy "1:" nebo "2:"
+                .replace(Regex("""^[1-4]\s*[:.-]\s*"""), "")
                 .trim(' ', '/', ';', ',', '-')
                 .replace(Regex("""\s+"""), " ")
             if (trimmed.length >= 6 && trimmed.any { it.isDigit() }) {
@@ -726,7 +724,6 @@ object VinAndCatalogService {
             }
         }
 
-        // 2. Vyhledani vsech rozmeru pneu (napr. 215/55 R17 94W + pripadny rafek 7Jx17 ET40) v DalsiZaznamy
         val comboRegex = Regex(
             """(\d{3}\s*/\s*\d{2,3}\s*Z?R\s*\d{2}\s*[0-9]{0,3}\s*[A-Z]{0,2}(?:\s*M\+S|\s*XL)?(?:\s*(?:NA RÁFKU|/|;|,|-|\s)\s*\d+(?:[.,]\d+)?\s*J\s*[xX]\s*\d{2}\s*(?:H2\s*)?(?:ET\s*-?\d+(?:[.,]\d+)?)?)?)""",
             RegexOption.IGNORE_CASE
@@ -737,7 +734,6 @@ object VinAndCatalogService {
                 .replace("NA RÁFKU ", "")
                 .trim(' ', '/', ';', ',', '-')
             if (found.length >= 7) {
-                // Zkontrolujeme, zda uz identicky rozmer v seznamu neni
                 val normFound = found.uppercase().replace(" ", "")
                 val alreadyPresent = uniqueItems.any { existing ->
                     val normEx = existing.uppercase().replace(" ", "")
@@ -746,7 +742,6 @@ object VinAndCatalogService {
                 if (!alreadyPresent) {
                     uniqueItems.add(found)
                 } else {
-                    // Pokud novy nalez obsahuje i rafek/ET a stary byl kratsi, nahradime ho delsim
                     val shorter = uniqueItems.find { existing ->
                         val normEx = existing.uppercase().replace(" ", "")
                         normFound.contains(normEx) && found.length > existing.length
@@ -810,7 +805,6 @@ object VinAndCatalogService {
         }
     }
 
-    // Bezpecne vytahne JSON hodnotu vcetne escapovanych uvozovek a novych radku
     private fun extractJsonValue(json: String, key: String): String {
         val regex = Regex(""""$key"\s*:\s*(?:"((?:\\.|[^"\\])*)"|([0-9.]+))""", RegexOption.IGNORE_CASE)
         val match = regex.find(json) ?: return ""
@@ -828,10 +822,53 @@ object VinAndCatalogService {
 object GarageStorage {
     private const val KEY_VEHICLES = "garaz_vehicles_v1"
     private const val KEY_MDCR_API = "garaz_mdcr_api_key_v1"
+    private const val KEY_ONEDRIVE_URI = "garaz_onedrive_uri_v1"
+    private const val KEY_WEEKLY_ENABLED = "garaz_weekly_backup_enabled_v1"
+    private const val KEY_LAST_BACKUP_MS = "garaz_last_backup_ms_v1"
+    private const val KEY_LAST_BACKUP_DATE = "garaz_last_backup_date_v1"
+    private const val SEVEN_DAYS_MS = 7L * 24L * 60L * 60L * 1000L
 
     fun loadApiKey(): String = GaragePlatform.loadString(KEY_MDCR_API, "")
-
     fun saveApiKey(key: String) = GaragePlatform.saveString(KEY_MDCR_API, key.trim())
+
+    fun loadOneDriveUri(): String = GaragePlatform.loadString(KEY_ONEDRIVE_URI, "")
+    fun saveOneDriveUri(uri: String) = GaragePlatform.saveString(KEY_ONEDRIVE_URI, uri)
+
+    fun isWeeklyBackupEnabled(): Boolean = GaragePlatform.loadString(KEY_WEEKLY_ENABLED, "true") == "true"
+    fun setWeeklyBackupEnabled(enabled: Boolean) = GaragePlatform.saveString(KEY_WEEKLY_ENABLED, if (enabled) "true" else "false")
+
+    fun loadLastBackupDate(): String = GaragePlatform.loadString(KEY_LAST_BACKUP_DATE, "Zatím neprovedena")
+
+    private fun recordBackupSuccess() {
+        GaragePlatform.saveString(KEY_LAST_BACKUP_MS, GaragePlatform.currentTimeMillis().toString())
+        GaragePlatform.saveString(KEY_LAST_BACKUP_DATE, GaragePlatform.currentDateString())
+    }
+
+    // Zkontroluje, zda od posledni zalohy na OneDrive uplynulo >= 7 dni, a pokud ano, automaticky ji provede
+    fun checkAndRunWeeklyBackupIfDue(vehicles: List<Vehicle>): Boolean {
+        if (!isWeeklyBackupEnabled()) return false
+        val uri = loadOneDriveUri()
+        if (uri.isBlank()) return false
+        val lastMs = GaragePlatform.loadString(KEY_LAST_BACKUP_MS, "0").toLongOrNull() ?: 0L
+        val nowMs = GaragePlatform.currentTimeMillis()
+        if (nowMs - lastMs >= SEVEN_DAYS_MS) {
+            val content = serializeVehicles(vehicles)
+            if (GaragePlatform.writeBackupFileUri(uri, content)) {
+                recordBackupSuccess()
+                return true
+            }
+        }
+        return false
+    }
+
+    fun triggerImmediateOneDriveBackup(vehicles: List<Vehicle>): Boolean {
+        val uri = loadOneDriveUri()
+        if (uri.isBlank()) return false
+        val content = serializeVehicles(vehicles)
+        val ok = GaragePlatform.writeBackupFileUri(uri, content)
+        if (ok) recordBackupSuccess()
+        return ok
+    }
 
     fun loadVehicles(): List<Vehicle> {
         val raw = GaragePlatform.loadString(KEY_VEHICLES, "")

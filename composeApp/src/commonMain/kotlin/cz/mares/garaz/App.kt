@@ -112,9 +112,19 @@ fun App() {
     var subfolderForCustomPart by remember { mutableStateOf<Pair<CategoryDef, SubfolderDef>?>(null) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
 
+    // Automaticka kontrola tydenni zalohy na OneDrive pri spusteni aplikace
+    LaunchedEffect(Unit) {
+        if (GarageStorage.checkAndRunWeeklyBackupIfDue(vehicles)) {
+            statusBanner = "☁️ Týdenní záloha na OneDrive byla automaticky aktualizována."
+        }
+    }
+
     fun updateVehicles(newList: List<Vehicle>) {
         vehicles = newList
         GarageStorage.saveVehicles(newList)
+        if (GarageStorage.checkAndRunWeeklyBackupIfDue(newList)) {
+            statusBanner = "☁️ Týdenní záloha na OneDrive byla automaticky aktualizována."
+        }
     }
 
     fun updateCurrentVehicle(transform: (Vehicle) -> Vehicle) {
@@ -2008,6 +2018,9 @@ private fun SettingsAndBackupDialog(
 ) {
     val p = LocalGaragePalette.current
     var apiKey by remember { mutableStateOf(GarageStorage.loadApiKey()) }
+    var oneDriveUri by remember { mutableStateOf(GarageStorage.loadOneDriveUri()) }
+    var weeklyEnabled by remember { mutableStateOf(GarageStorage.isWeeklyBackupEnabled()) }
+    var lastBackupDate by remember { mutableStateOf(GarageStorage.loadLastBackupDate()) }
     var backupText by remember { mutableStateOf("") }
     var infoMsg by remember { mutableStateOf<String?>(null) }
 
@@ -2030,14 +2043,109 @@ private fun SettingsAndBackupDialog(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 FilterChipBtn("📱 Podle systému", currentThemePref == 0) { onThemePrefChange(0) }
-                FilterChipBtn("☀️ Den (Světlý)", currentThemePref == 1) { onThemePrefChange(1) }
-                FilterChipBtn("🌙 Noc (Tmavý)", currentThemePref == 2) { onThemePrefChange(2) }
+                FilterChipBtn("☀️ Den", currentThemePref == 1) { onThemePrefChange(1) }
+                FilterChipBtn("🌙 Noc", currentThemePref == 2) { onThemePrefChange(2) }
+            }
+
+            HorizontalDivider(color = p.border)
+
+            // Sekce OneDrive automaticke tydenni zalohy
+            Text("☁️ Automatická týdenní záloha (OneDrive / Soubory):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        weeklyEnabled = !weeklyEnabled
+                        GarageStorage.setWeeklyBackupEnabled(weeklyEnabled)
+                    }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(if (weeklyEnabled) "☑" else "☐", fontSize = 16.sp, color = p.greenOk)
+                Spacer(Modifier.width(8.dp))
+                Text("Automaticky aktualizovat zálohu 1× týdně (každých 7 dní)", fontSize = 12.sp, color = p.textPrimary)
+            }
+
+            Text(
+                text = if (oneDriveUri.isNotBlank()) {
+                    "Propojený soubor: ✓ Nastaveno\nPoslední záloha na OneDrive: $lastBackupDate"
+                } else {
+                    "Zatím není vybraný záložní soubor ve složce OneDrive."
+                },
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = if (oneDriveUri.isNotBlank()) p.greenOk else p.textMuted
+            )
+
+            Button(
+                onClick = {
+                    val content = GarageStorage.serializeVehicles(vehicles)
+                    GaragePlatform.selectBackupFileForSave("garaz_zaloha.txt", content) { selectedUri ->
+                        if (!selectedUri.isNullOrBlank()) {
+                            GarageStorage.saveOneDriveUri(selectedUri)
+                            oneDriveUri = selectedUri
+                            GarageStorage.triggerImmediateOneDriveBackup(vehicles)
+                            lastBackupDate = GarageStorage.loadLastBackupDate()
+                            infoMsg = "✓ Záložní soubor na OneDrivu byl nastaven a rovnou uložen."
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = p.accent)
+            ) {
+                Text(
+                    text = if (oneDriveUri.isBlank()) "📂 Vybrat / Vytvořit soubor ve složce OneDrive" else "📂 Změnit záložní soubor na OneDrivu",
+                    color = p.onAccent,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (GarageStorage.triggerImmediateOneDriveBackup(vehicles)) {
+                            lastBackupDate = GarageStorage.loadLastBackupDate()
+                            infoMsg = "✓ Záloha byla okamžitě zapsána do souboru na OneDrivu."
+                        } else {
+                            infoMsg = "Nejprve vyber cílový soubor tlačítkem výše."
+                        }
+                    },
+                    enabled = oneDriveUri.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
+                ) {
+                    Text("☁️ Zálohovat hned", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+
+                Button(
+                    onClick = {
+                        GaragePlatform.selectBackupFileForOpen { openedUri, content ->
+                            if (!content.isNullOrBlank()) {
+                                val parsed = GarageStorage.deserializeVehicles(content)
+                                if (parsed.isNotEmpty()) {
+                                    if (!openedUri.isNullOrBlank()) {
+                                        GarageStorage.saveOneDriveUri(openedUri)
+                                        oneDriveUri = openedUri
+                                    }
+                                    onRestoreVehicles(parsed)
+                                } else {
+                                    infoMsg = "Vybraný soubor neobsahuje platnou zálohu Garáže."
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = p.accent)
+                ) {
+                    Text("📥 Obnovit ze souboru", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
             }
 
             HorizontalDivider(color = p.border)
 
             Text(
-                "API klíč z portálu dataovozidlech.cz (volitelné – pro automatické stahování kompletních dat z velkého TP):",
+                "API klíč z portálu dataovozidlech.cz (pro stahování dat z velkého TP):",
                 fontSize = 11.sp,
                 color = p.textMuted
             )
@@ -2054,7 +2162,7 @@ private fun SettingsAndBackupDialog(
 
             HorizontalDivider(color = p.border)
 
-            Text("Záloha a přenos databází mezi telefony:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            Text("Rychlé zkopírování zálohy přes schránku:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -2067,7 +2175,7 @@ private fun SettingsAndBackupDialog(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                 ) {
-                    Text("Kopírovat zálohu", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Kopírovat text", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
                 Button(
                     onClick = {
@@ -2081,19 +2189,19 @@ private fun SettingsAndBackupDialog(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
-                    Text("Obnovit ze zálohy", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Obnovit z textu", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
 
             OutlinedTextField(
                 value = backupText,
                 onValueChange = { backupText = it },
-                label = { Text("Data zálohy (pro export / import)") },
-                modifier = Modifier.fillMaxWidth().height(90.dp)
+                label = { Text("Textová data zálohy") },
+                modifier = Modifier.fillMaxWidth().height(75.dp)
             )
 
             if (infoMsg != null) {
-                Text(infoMsg ?: "", fontSize = 12.sp, color = p.greenOk)
+                Text(infoMsg ?: "", fontSize = 12.sp, color = p.greenOk, fontWeight = FontWeight.SemiBold)
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

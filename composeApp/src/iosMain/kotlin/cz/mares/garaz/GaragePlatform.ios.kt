@@ -1,17 +1,24 @@
 package cz.mares.garaz
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.NSDate
 import platform.Foundation.NSDateFormatter
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSUserDomainMask
 import platform.Foundation.create
 import platform.Foundation.dataTaskWithRequest
 import platform.Foundation.setValue
+import platform.Foundation.stringWithContentsOfFile
+import platform.Foundation.timeIntervalSince1970
+import platform.Foundation.writeToFile
 import platform.UIKit.UIPasteboard
 import kotlin.coroutines.resume
 
@@ -31,8 +38,56 @@ actual object GaragePlatform {
         return formatter.stringFromDate(NSDate())
     }
 
+    actual fun currentTimeMillis(): Long {
+        return (NSDate().timeIntervalSince1970 * 1000.0).toLong()
+    }
+
     actual fun copyToClipboard(text: String) {
         UIPasteboard.generalPasteboard.string = text
+    }
+
+    private fun defaultIosBackupPath(fileName: String): String {
+        val paths = NSFileManager.defaultManager.URLsForDirectory(NSDocumentDirectory, NSUserDomainMask)
+        val docUrl = paths.firstOrNull() as? NSURL
+        return "${docUrl?.path ?: ""}/$fileName"
+    }
+
+    actual fun selectBackupFileForSave(suggestedName: String, initialContent: String, onResult: (String?) -> Unit) {
+        val path = defaultIosBackupPath(suggestedName)
+        if (writeBackupFileUri(path, initialContent)) {
+            onResult(path)
+        } else {
+            onResult(null)
+        }
+    }
+
+    actual fun selectBackupFileForOpen(onResult: (uri: String?, content: String?) -> Unit) {
+        val savedUri = loadString("garaz_onedrive_uri_v1", "").ifBlank { defaultIosBackupPath("garaz_zaloha.txt") }
+        val content = readBackupFileUri(savedUri)
+        if (content != null) {
+            onResult(savedUri, content)
+        } else {
+            onResult(null, null)
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    actual fun writeBackupFileUri(uriString: String, content: String): Boolean {
+        return try {
+            val nsStr = NSString.create(string = content)
+            nsStr.writeToFile(uriString, atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    actual fun readBackupFileUri(uriString: String): String? {
+        return try {
+            NSString.stringWithContentsOfFile(uriString, encoding = NSUTF8StringEncoding, error = null)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     actual suspend fun httpGet(url: String, headers: Map<String, String>): Result<String> =

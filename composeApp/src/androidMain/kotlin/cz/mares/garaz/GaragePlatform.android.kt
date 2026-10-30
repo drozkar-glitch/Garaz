@@ -3,6 +3,7 @@ package cz.mares.garaz
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -15,6 +16,11 @@ import java.util.Locale
 
 object GaragePlatformInit {
     var appContext: Context? = null
+    var launchCreateDocument: ((String) -> Unit)? = null
+    var launchOpenDocument: (() -> Unit)? = null
+    var onCreateDocumentResult: ((String?) -> Unit)? = null
+    var onOpenDocumentResult: ((String?, String?) -> Unit)? = null
+
     fun init(context: Context) {
         appContext = context.applicationContext
     }
@@ -40,10 +46,57 @@ actual object GaragePlatform {
         return sdf.format(Date())
     }
 
+    actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
     actual fun copyToClipboard(text: String) {
         val ctx = GaragePlatformInit.appContext ?: return
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("GarazBackup", text))
+    }
+
+    actual fun selectBackupFileForSave(suggestedName: String, initialContent: String, onResult: (String?) -> Unit) {
+        GaragePlatformInit.onCreateDocumentResult = { uriStr ->
+            if (!uriStr.isNullOrBlank()) {
+                writeBackupFileUri(uriStr, initialContent)
+                onResult(uriStr)
+            } else {
+                onResult(null)
+            }
+        }
+        GaragePlatformInit.launchCreateDocument?.invoke(suggestedName) ?: onResult(null)
+    }
+
+    actual fun selectBackupFileForOpen(onResult: (uri: String?, content: String?) -> Unit) {
+        GaragePlatformInit.onOpenDocumentResult = { uriStr, content ->
+            onResult(uriStr, content)
+        }
+        GaragePlatformInit.launchOpenDocument?.invoke() ?: onResult(null, null)
+    }
+
+    actual fun writeBackupFileUri(uriString: String, content: String): Boolean {
+        val ctx = GaragePlatformInit.appContext ?: return false
+        return try {
+            val uri = Uri.parse(uriString)
+            ctx.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.flush()
+            } ?: return false
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    actual fun readBackupFileUri(uriString: String): String? {
+        val ctx = GaragePlatformInit.appContext ?: return null
+        return try {
+            val uri = Uri.parse(uriString)
+            ctx.contentResolver.openInputStream(uri)?.use { inp ->
+                BufferedReader(InputStreamReader(inp, Charsets.UTF_8)).readText()
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     actual suspend fun httpGet(url: String, headers: Map<String, String>): Result<String> = withContext(Dispatchers.IO) {
