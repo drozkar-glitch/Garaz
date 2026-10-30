@@ -20,6 +20,12 @@ import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.writeToFile
 import platform.UIKit.UIPasteboard
+import platform.UserNotifications.UNAuthorizationOptionAlert
+import platform.UserNotifications.UNAuthorizationOptionSound
+import platform.UserNotifications.UNMutableNotificationContent
+import platform.UserNotifications.UNNotificationRequest
+import platform.UserNotifications.UNTimeIntervalNotificationTrigger
+import platform.UserNotifications.UNUserNotificationCenter
 import kotlin.coroutines.resume
 
 actual object GaragePlatform {
@@ -44,6 +50,23 @@ actual object GaragePlatform {
 
     actual fun copyToClipboard(text: String) {
         UIPasteboard.generalPasteboard.string = text
+    }
+
+    actual fun showServiceNotification(title: String, message: String) {
+        val center = UNUserNotificationCenter.currentNotificationCenter()
+        center.requestAuthorizationWithOptions(
+            options = UNAuthorizationOptionAlert or UNAuthorizationOptionSound
+        ) { granted, _ ->
+            if (granted) {
+                val content = UNMutableNotificationContent().apply {
+                    setTitle(title)
+                    setBody(message)
+                }
+                val trigger = UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(1.0, false)
+                val req = UNNotificationRequest.requestWithIdentifier("garaz_service_alert", content, trigger)
+                center.addNotificationRequest(req, null)
+            }
+        }
     }
 
     private fun defaultIosBackupPath(fileName: String): String {

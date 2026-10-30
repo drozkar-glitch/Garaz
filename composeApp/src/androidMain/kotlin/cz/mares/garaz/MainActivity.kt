@@ -1,22 +1,36 @@
 package cz.mares.garaz
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 
-// Hlavni aktivita s podporou trvaleho opravneni pro zapis zalohy na OneDrive (SAF)
+// Hlavni aktivita s podporou Google Drive zalohy (SAF) a povolenim notifikaci
 class MainActivity : ComponentActivity() {
 
     private lateinit var createBackupDocLauncher: ActivityResultLauncher<String>
     private lateinit var openBackupDocLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         GaragePlatformInit.init(applicationContext)
+
+        notificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { _ -> }
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         createBackupDocLauncher = registerForActivityResult(
             ActivityResultContracts.CreateDocument("text/plain")

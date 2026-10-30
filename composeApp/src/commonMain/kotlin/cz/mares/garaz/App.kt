@@ -77,6 +77,51 @@ private val LightPalette = GaragePalette(
 
 private val LocalGaragePalette = compositionLocalOf { DarkPalette }
 
+private data class ServiceAlertItem(
+    val vehicle: Vehicle,
+    val part: PartItem,
+    val lastRecord: ReplacementRecord,
+    val remainingKm: Int
+)
+
+private fun computeAlertsForVehicle(vehicle: Vehicle): List<ServiceAlertItem> {
+    val allParts = GarageCatalog.allPartsForVehicle(vehicle)
+    val alerts = mutableListOf<ServiceAlertItem>()
+    for (part in allParts) {
+        if (part.defaultIntervalKm <= 0) continue
+        val lastRec = vehicle.records
+            .filter { it.partId == part.id }
+            .maxByOrNull { it.mileageKm } ?: continue
+        val driven = (vehicle.currentMileageKm - lastRec.mileageKm).coerceAtLeast(0)
+        val remaining = part.defaultIntervalKm - driven
+        if (remaining <= 3000) {
+            alerts.add(ServiceAlertItem(vehicle, part, lastRec, remaining))
+        }
+    }
+    return alerts.sortedBy { it.remainingKm }
+}
+
+private fun notifyIfServiceDue(vehicles: List<Vehicle>) {
+    val allAlerts = vehicles.flatMap { computeAlertsForVehicle(it) }
+    if (allAlerts.isEmpty()) return
+
+    val overdueCount = allAlerts.count { it.remainingKm < 0 }
+    val title = if (overdueCount > 0) {
+        "⚠️ Překročen servisní interval ($overdueCount×)"
+    } else {
+        "⏱ Blíží se servisní interval (${allAlerts.size}×)"
+    }
+    val summary = allAlerts.take(4).joinToString("\n") { item ->
+        val status = if (item.remainingKm < 0) {
+            "překročeno o ${formatKm(-item.remainingKm)}"
+        } else {
+            "zbývá ${formatKm(item.remainingKm)}"
+        }
+        "${item.vehicle.name}: ${item.part.name} ($status)"
+    }
+    GaragePlatform.showServiceNotification(title, summary)
+}
+
 @Composable
 fun App() {
     val systemDark = isSystemInDarkTheme()
@@ -117,24 +162,28 @@ fun App() {
         if (GarageStorage.checkAndRunWeeklyBackupIfDue(vehicles)) {
             statusBanner = "☁️ Týdenní záloha na Google Drive byla automaticky aktualizována."
         }
+        notifyIfServiceDue(vehicles)
     }
 
-    fun updateVehicles(newList: List<Vehicle>) {
+    fun updateVehicles(newList: List<Vehicle>, checkNotifications: Boolean = false) {
         vehicles = newList
         GarageStorage.saveVehicles(newList)
         if (GarageStorage.checkAndRunWeeklyBackupIfDue(newList)) {
             statusBanner = "☁️ Týdenní záloha na Google Drive byla automaticky aktualizována."
         }
+        if (checkNotifications) {
+            notifyIfServiceDue(newList)
+        }
     }
 
-    fun updateCurrentVehicle(transform: (Vehicle) -> Vehicle) {
+    fun updateCurrentVehicle(checkNotifications: Boolean = false, transform: (Vehicle) -> Vehicle) {
         val cur = currentVehicle ?: return
         val updated = vehicles.map { if (it.id == cur.id) transform(it) else it }
-        updateVehicles(updated)
+        updateVehicles(updated, checkNotifications)
     }
 
     fun savePartInterval(part: PartItem, newIntervalKm: Int) {
-        updateCurrentVehicle { v ->
+        updateCurrentVehicle(checkNotifications = true) { v ->
             val updatedMap = v.customIntervals.toMutableMap()
             updatedMap[part.id] = newIntervalKm.coerceAtLeast(0)
             val updatedCustomParts = v.customParts.map { cp ->
@@ -212,28 +261,46 @@ fun App() {
                 ) {
                     vehicles.forEach { car ->
                         val isSel = car.id == currentVehicle?.id
+                        val carAlerts = remember(car) { computeAlertsForVehicle(car) }
+                        val hasOverdue = carAlerts.any { it.remainingKm < 0 }
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSel) palette.accent.copy(alpha = 0.18f) else palette.card)
                                 .border(
                                     width = if (isSel) 2.dp else 1.dp,
-                                    color = if (isSel) palette.accent else palette.border,
+                                    color = when {
+                                        hasOverdue -> palette.redAlert
+                                        carAlerts.isNotEmpty() -> palette.amberWarn
+                                        isSel -> palette.accent
+                                        else -> palette.border
+                                    },
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .clickable { selectedVehicleId = car.id }
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Column {
-                                Text(
-                                    text = car.name,
-                                    fontSize = 13.sp,
-                                    lineHeight = 16.sp,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSel) palette.accent else palette.textPrimary
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = car.name,
+                                        fontSize = 13.sp,
+                                        lineHeight = 16.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSel) palette.accent else palette.textPrimary
+                                    )
+                                    if (carAlerts.isNotEmpty()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = "⚠ ${carAlerts.size}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (hasOverdue) palette.redAlert else palette.amberWarn
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "${formatKm(car.currentMileageKm)} • ${car.engineCode.ifBlank { "VIN" }}",
                                     fontSize = 11.sp,
@@ -296,6 +363,9 @@ fun App() {
                     val replacedPartIds = remember(currentVehicle.records) {
                         currentVehicle.records.map { it.partId }.toSet()
                     }
+                    val currentVehicleAlerts = remember(currentVehicle) {
+                        computeAlertsForVehicle(currentVehicle)
+                    }
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -313,6 +383,17 @@ fun App() {
                                 onQuickKmClick = { showQuickMileageDialog = true },
                                 onSmartParseClick = { showSmartParserDialog = true }
                             )
+                        }
+
+                        // Vystrazny panel primo na hlavni obrazovce, pokud se blizi vymena nebo je interval prekroceny
+                        if (currentVehicleAlerts.isNotEmpty()) {
+                            item {
+                                ServiceAlertsBannerCard(
+                                    alerts = currentVehicleAlerts,
+                                    onMarkReplaced = { part -> partToMarkReplaced = part },
+                                    onEditInterval = { part -> partForIntervalEdit = part }
+                                )
+                            }
                         }
 
                         item {
@@ -358,11 +439,15 @@ fun App() {
                                     FilterChipBtn("Všechny díly (${allParts.size})", filterMode == 0) { filterMode = 0 }
                                     FilterChipBtn("✓ Vyměněné (${replacedPartIds.size})", filterMode == 1) { filterMode = 1 }
                                     FilterChipBtn("⏱ Intervaly", filterMode == 2) { filterMode = 2 }
+                                    if (currentVehicleAlerts.isNotEmpty()) {
+                                        FilterChipBtn("⚠ K výměně (${currentVehicleAlerts.size})", filterMode == 3) { filterMode = 3 }
+                                    }
                                 }
                             }
                         }
 
                         if (searchQuery.isNotBlank() || filterMode != 0) {
+                            val alertPartIds = currentVehicleAlerts.map { it.part.id }.toSet()
                             val normQuery = GarageCatalog.removeDiacritics(searchQuery.trim().lowercase())
                             val filteredParts = allParts.filter { part ->
                                 val matchesSearch = if (normQuery.isBlank()) true else {
@@ -373,6 +458,7 @@ fun App() {
                                 val matchesFilter = when (filterMode) {
                                     1 -> replacedPartIds.contains(part.id)
                                     2 -> part.defaultIntervalKm > 0
+                                    3 -> alertPartIds.contains(part.id)
                                     else -> true
                                 }
                                 matchesSearch && matchesFilter
@@ -406,12 +492,14 @@ fun App() {
                             items(GarageCatalog.categories, key = { it.id }) { cat ->
                                 val catParts = allParts.filter { it.categoryId == cat.id }
                                 val catReplacedCount = catParts.count { replacedPartIds.contains(it.id) }
+                                val catAlertsCount = currentVehicleAlerts.count { it.part.categoryId == cat.id }
                                 val isCatExpanded = expandedCategoryIds.contains(cat.id)
 
                                 CategoryTreeCard(
                                     category = cat,
                                     allCategoryParts = catParts,
                                     replacedCount = catReplacedCount,
+                                    alertsCount = catAlertsCount,
                                     isExpanded = isCatExpanded,
                                     expandedSubfolderIds = expandedSubfolderIds,
                                     vehicle = currentVehicle,
@@ -460,7 +548,7 @@ fun App() {
                             brandOrSpec = brand,
                             note = note
                         )
-                        updateCurrentVehicle { v ->
+                        updateCurrentVehicle(checkNotifications = true) { v ->
                             val updatedKm = maxOf(v.currentMileageKm, km)
                             val updatedIntervals = v.customIntervals.toMutableMap()
                             updatedIntervals[latestPart.id] = intervalKm.coerceAtLeast(0)
@@ -557,10 +645,13 @@ fun App() {
                         onSave = { savedCar ->
                             if (isAddingNewVehicle) {
                                 val newList = vehicles + savedCar
-                                updateVehicles(newList)
+                                updateVehicles(newList, checkNotifications = true)
                                 selectedVehicleId = savedCar.id
                             } else {
-                                updateVehicles(vehicles.map { if (it.id == savedCar.id) savedCar else it })
+                                updateVehicles(
+                                    vehicles.map { if (it.id == savedCar.id) savedCar else it },
+                                    checkNotifications = true
+                                )
                             }
                             showEditVehicleDialog = false
                             statusBanner = "Karta vozidla ${savedCar.name} uložena."
@@ -581,7 +672,7 @@ fun App() {
                     vehicleName = currentVehicle.name,
                     onDismiss = { showQuickMileageDialog = false },
                     onSave = { newKm ->
-                        updateCurrentVehicle { it.copy(currentMileageKm = newKm) }
+                        updateCurrentVehicle(checkNotifications = true) { it.copy(currentMileageKm = newKm) }
                         showQuickMileageDialog = false
                         statusBanner = "Stav tachometru aktualizován na ${formatKm(newKm)}."
                     }
@@ -603,7 +694,7 @@ fun App() {
                                 note = note
                             )
                         }
-                        updateCurrentVehicle { v ->
+                        updateCurrentVehicle(checkNotifications = true) { v ->
                             v.copy(
                                 currentMileageKm = maxOf(v.currentMileageKm, km),
                                 records = newRecords + v.records
@@ -723,12 +814,98 @@ fun App() {
                     },
                     onDismiss = { showSettingsDialog = false },
                     onRestoreVehicles = { restored ->
-                        updateVehicles(restored)
+                        updateVehicles(restored, checkNotifications = true)
                         selectedVehicleId = restored.firstOrNull()?.id ?: ""
                         showSettingsDialog = false
                         statusBanner = "Databáze garáže byla úspěšně obnovena (${restored.size} vozidel)."
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServiceAlertsBannerCard(
+    alerts: List<ServiceAlertItem>,
+    onMarkReplaced: (PartItem) -> Unit,
+    onEditInterval: (PartItem) -> Unit
+) {
+    val p = LocalGaragePalette.current
+    val hasOverdue = alerts.any { it.remainingKm < 0 }
+    val borderCol = if (hasOverdue) p.redAlert else p.amberWarn
+    val headerCol = if (hasOverdue) p.redAlert else p.amberWarn
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(borderCol.copy(alpha = if (p.isDark) 0.16f else 0.12f))
+            .border(1.5.dp, borderCol, RoundedCornerShape(12.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = if (hasOverdue) {
+                "🚨 Upozornění: Překročený servisní interval (${alerts.size})"
+            } else {
+                "⚠️ Blíží se pravidelný servis (${alerts.size})"
+            },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = headerCol
+        )
+
+        alerts.forEach { item ->
+            val isOver = item.remainingKm < 0
+            val itemCol = if (isOver) p.redAlert else p.amberWarn
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(p.card)
+                    .border(1.dp, itemCol.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 9.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = item.part.name,
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = p.textPrimary
+                    )
+                    Text(
+                        text = if (isOver) {
+                            "⚠ Překročeno o ${formatKm(-item.remainingKm)}! (interval ${formatKm(item.part.defaultIntervalKm)})"
+                        } else {
+                            "⏱ Do výměny zbývá: ${formatKm(item.remainingKm)} (interval ${formatKm(item.part.defaultIntervalKm)})"
+                        },
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = itemCol,
+                        modifier = Modifier.clickable { onEditInterval(item.part) }
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(p.greenOk)
+                        .clickable { onMarkReplaced(item.part) }
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = "✓ Vyměnit",
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = p.onAccent
+                    )
+                }
             }
         }
     }
@@ -889,6 +1066,7 @@ private fun CategoryTreeCard(
     category: CategoryDef,
     allCategoryParts: List<PartItem>,
     replacedCount: Int,
+    alertsCount: Int,
     isExpanded: Boolean,
     expandedSubfolderIds: Set<String>,
     vehicle: Vehicle,
@@ -906,7 +1084,15 @@ private fun CategoryTreeCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(p.card)
-            .border(1.dp, if (isExpanded) p.accent.copy(alpha = 0.6f) else p.border, RoundedCornerShape(12.dp))
+            .border(
+                1.dp,
+                when {
+                    alertsCount > 0 -> p.amberWarn
+                    isExpanded -> p.accent.copy(alpha = 0.6f)
+                    else -> p.border
+                },
+                RoundedCornerShape(12.dp)
+            )
     ) {
         Row(
             modifier = Modifier
@@ -935,7 +1121,25 @@ private fun CategoryTreeCard(
                     )
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (alertsCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(p.amberWarn.copy(alpha = 0.2f))
+                            .border(1.dp, p.amberWarn, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "⚠ $alertsCount",
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = p.amberWarn
+                        )
+                    }
+                }
                 if (replacedCount > 0) {
                     Box(
                         modifier = Modifier
@@ -1167,7 +1371,6 @@ private fun PartRowCard(
                 Text(part.specHint, fontSize = 11.sp, lineHeight = 14.sp, color = p.textMuted)
             }
 
-            // Klikatelny stitek pro nastaveni / zmenu servisniho intervalu
             Text(
                 text = if (part.defaultIntervalKm > 0) {
                     "⏱ Interval: ${formatKm(part.defaultIntervalKm)} (upravit ✎)"
@@ -1386,7 +1589,6 @@ private fun EditPartIntervalDialog(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Rychle predvolby pro nejpouzivanejsi intervaly
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1442,7 +1644,6 @@ private fun PartHistoryDialog(
         ) {
             Text(part.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.textPrimary)
 
-            // Uprava servisniho intervalu primo v detailu dilu
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
