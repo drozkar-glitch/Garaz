@@ -80,7 +80,6 @@ private val LocalGaragePalette = compositionLocalOf { DarkPalette }
 @Composable
 fun App() {
     val systemDark = isSystemInDarkTheme()
-    // 0 = Automaticky podle systemu, 1 = Svetly (Den), 2 = Tmavy (Noc)
     var themePref by remember {
         mutableStateOf(GaragePlatform.loadString("garaz_theme_mode_v1", "0").toIntOrNull() ?: 0)
     }
@@ -99,9 +98,8 @@ fun App() {
     var expandedSubfolderIds by remember { mutableStateOf(setOf("m_naplne", "m_filtry")) }
 
     var searchQuery by remember { mutableStateOf("") }
-    var filterMode by remember { mutableStateOf(0) } // 0 = Vse, 1 = Vymenene, 2 = Intervaly
+    var filterMode by remember { mutableStateOf(0) }
 
-    // Dialog states
     var partToMarkReplaced by remember { mutableStateOf<PartItem?>(null) }
     var partForHistoryDetail by remember { mutableStateOf<PartItem?>(null) }
     var showEditVehicleDialog by remember { mutableStateOf(false) }
@@ -154,7 +152,6 @@ fun App() {
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                // Kompaktni horni lista na jeden radek bez zalamovani
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -182,7 +179,6 @@ fun App() {
 
                 Spacer(Modifier.height(6.dp))
 
-                // Kompaktni prepinac aut v garazi
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -277,12 +273,10 @@ fun App() {
                         currentVehicle.records.map { it.partId }.toSet()
                     }
 
-                    // Seznam vsech polozek v hlavnim scrollu
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Karta vybraneho vozidla
                         item {
                             VehicleSummaryCard(
                                 vehicle = currentVehicle,
@@ -297,7 +291,6 @@ fun App() {
                             )
                         }
 
-                        // Vyhledavani a filtry
                         item {
                             Column(
                                 modifier = Modifier
@@ -345,7 +338,6 @@ fun App() {
                             }
                         }
 
-                        // Pokud uzivatel vyhledava nebo filtruje, zobrazime primo vyfiltrovane dily
                         if (searchQuery.isNotBlank() || filterMode != 0) {
                             val normQuery = GarageCatalog.removeDiacritics(searchQuery.trim().lowercase())
                             val filteredParts = allParts.filter { part ->
@@ -386,7 +378,6 @@ fun App() {
                                 )
                             }
                         } else {
-                            // Stromova struktura: Kategorie -> Podslozky -> Konkretni dily
                             items(GarageCatalog.categories, key = { it.id }) { cat ->
                                 val catParts = allParts.filter { it.categoryId == cat.id }
                                 val catReplacedCount = catParts.count { replacedPartIds.contains(it.id) }
@@ -426,7 +417,6 @@ fun App() {
                 }
             }
 
-            // 1. Dialog pro oznaceni konkretniho dilu jako VYMENENO
             val targetPart = partToMarkReplaced
             if (targetPart != null && currentVehicle != null) {
                 MarkPartReplacedDialog(
@@ -455,7 +445,6 @@ fun App() {
                 )
             }
 
-            // 2. Dialog historie konkretniho dilu (s moznosti smazat zaznam)
             val historyPart = partForHistoryDetail
             if (historyPart != null && currentVehicle != null) {
                 PartHistoryDialog(
@@ -474,7 +463,6 @@ fun App() {
                 )
             }
 
-            // 3. Dialog pro nacteni/upravu auta podle VIN (dataovozidlech.cz)
             if (showEditVehicleDialog) {
                 val editingCar = if (isAddingNewVehicle) {
                     Vehicle(
@@ -523,7 +511,6 @@ fun App() {
                 }
             }
 
-            // 4. Rychla uprava stavu tachometru
             if (showQuickMileageDialog && currentVehicle != null) {
                 QuickMileageDialog(
                     currentKm = currentVehicle.currentMileageKm,
@@ -537,7 +524,6 @@ fun App() {
                 )
             }
 
-            // 5. Chytre rozklicovani hromadneho servisu z textu
             if (showSmartParserDialog && currentVehicle != null) {
                 SmartServiceParserDialog(
                     vehicle = currentVehicle,
@@ -565,7 +551,6 @@ fun App() {
                 )
             }
 
-            // 6. Nacitani dalsich dilu z online katalogu do podslozky
             val fetchTarget = subfolderForCatalogFetch
             if (fetchTarget != null && currentVehicle != null) {
                 CatalogPartsPickerDialog(
@@ -610,7 +595,6 @@ fun App() {
                 )
             }
 
-            // 7. Pridani vlastniho dilu do podslozky
             val customTarget = subfolderForCustomPart
             if (customTarget != null && currentVehicle != null) {
                 AddCustomPartDialog(
@@ -653,7 +637,6 @@ fun App() {
                 )
             }
 
-            // 8. Kompletni chronologicka historie auta
             if (showAllHistoryDialog && currentVehicle != null) {
                 AllVehicleHistoryDialog(
                     vehicle = currentVehicle,
@@ -666,7 +649,6 @@ fun App() {
                 )
             }
 
-            // 9. Nastaveni rezimu Den/Noc, API klice MDCR a zalohovani databaze
             if (showSettingsDialog) {
                 SettingsAndBackupDialog(
                     vehicles = vehicles,
@@ -705,9 +687,8 @@ private fun VehicleSummaryCard(
             .background(p.card)
             .border(1.dp, p.border, RoundedCornerShape(12.dp))
             .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Radek 1: Nazev auta vlevo + tlacitko VIN / Upravit vpravo
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -743,15 +724,12 @@ private fun VehicleSummaryCard(
             }
         }
 
-        // Technicke udaje pres celou sirku karty
         Text(
-            text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }}",
+            text = "VIN: ${vehicle.vin.ifBlank { "nezadáno" }} • SPZ: ${vehicle.plate.ifBlank { "-" }} • STK do: ${vehicle.stkUntil.ifBlank { "-" }}",
             fontSize = 12.sp,
             lineHeight = 15.sp,
             color = p.accent,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth()
         )
         Text(
@@ -759,23 +737,18 @@ private fun VehicleSummaryCard(
             fontSize = 11.sp,
             lineHeight = 14.sp,
             color = p.textMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth()
         )
-        if (vehicle.stkUntil.isNotBlank() || vehicle.tiresInfo.isNotBlank()) {
+        if (vehicle.tiresInfo.isNotBlank()) {
             Text(
-                text = "STK do: ${vehicle.stkUntil.ifBlank { "-" }} • Pneu: ${vehicle.tiresInfo.ifBlank { "-" }}",
+                text = "Pneu a ráfky v TP: ${vehicle.tiresInfo}",
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
                 color = p.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Radek s tachometrem a poctem vymenenych dilu
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -824,7 +797,6 @@ private fun VehicleSummaryCard(
             }
         }
 
-        // Tlacitko pro chytre rozklicovani servisu
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -871,7 +843,6 @@ private fun CategoryTreeCard(
             .background(p.card)
             .border(1.dp, if (isExpanded) p.accent.copy(alpha = 0.6f) else p.border, RoundedCornerShape(12.dp))
     ) {
-        // Hlavicka hlavni sekce
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -922,7 +893,6 @@ private fun CategoryTreeCard(
             }
         }
 
-        // Podslozky uvnitr kategorie
         if (isExpanded) {
             Column(
                 modifier = Modifier
@@ -1000,7 +970,6 @@ private fun CategoryTreeCard(
                                     )
                                 }
 
-                                // Tlacitka pro dotazeni dilu z katalogu nebo pridani vlastniho dilu
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1533,8 +1502,9 @@ private fun EditVehicleVinDialog(
             OutlinedTextField(
                 value = tiresInfo,
                 onValueChange = { tiresInfo = it },
-                label = { Text("Zapsané pneu a ráfky z TP") },
-                singleLine = true,
+                label = { Text("Zapsané pneu a ráfky z TP (včetně alternativních)") },
+                minLines = 2,
+                maxLines = 6,
                 modifier = Modifier.fillMaxWidth()
             )
 

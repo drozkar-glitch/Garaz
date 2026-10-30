@@ -425,7 +425,7 @@ object GarageCatalog {
             gearbox = "Automat DSG",
             color = "Šedá / Černá",
             stkUntil = "10.2026",
-            tiresInfo = "215/55 R17, 235/45 R18",
+            tiresInfo = "215/55 R17, 235/45 R18, 235/40 R19",
             currentMileageKm = 285000
         ),
         Vehicle(
@@ -440,7 +440,7 @@ object GarageCatalog {
             gearbox = "Automat DSG (6st.)",
             color = "Černá metalíza",
             stkUntil = "05.2027",
-            tiresInfo = "205/55 R16, 225/45 R17",
+            tiresInfo = "205/55 R16, 225/45 R17, 225/40 R18",
             currentMileageKm = 365000
         ),
         Vehicle(
@@ -460,7 +460,6 @@ object GarageCatalog {
         )
     )
 
-    // Doplnkove dily pro tlacitko "Nacist dalsi dily z katalogu"
     val extraCatalogPartsBySubfolder: Map<String, List<String>> = mapOf(
         "m_naplne" to listOf("Aditivum do nafty (VIF)", "Průplach motoru (Engine Flush)", "Brzdový čistič / odmašťovač"),
         "m_filtry" to listOf("Těleso olejového filtru kompletní", "Víčko olejového filtru", "Odvodnění palivového filtru"),
@@ -493,7 +492,6 @@ object GarageCatalog {
         "ka_dvere" to listOf("Stahovačka okna – Levá zadní", "Stahovačka okna – Pravá zadní", "Vnější klika dveří", "Sklo zpětného zrcátka vyhřívané (L / P)")
     )
 
-    // Rozklicovani volneho textu servisu na konkretni dily ve stromu
     fun parseServiceTextToParts(text: String, allParts: List<PartItem>): List<PartItem> {
         val norm = removeDiacritics(text.lowercase())
         val matched = mutableSetOf<PartItem>()
@@ -601,7 +599,6 @@ object GarageCatalog {
             if (hasRear) addById("ka_wip_r") else addById("ka_wip_f")
         }
 
-        // Dodatecne porovnani podle nazvu dilu
         allParts.forEach { part ->
             val pNorm = removeDiacritics(part.name.lowercase())
             val words = pNorm.split(" ", "–", "-", "(", ")", "/").filter { it.length >= 5 }
@@ -629,7 +626,6 @@ object GarageCatalog {
 
 object VinAndCatalogService {
 
-    // Dotaz na oficialni statni registr dataovozidlech.cz + zalozni VIN dekoder
     suspend fun decodeVin(vinInput: String, apiKey: String): VinDecodedData {
         val vin = vinInput.trim().uppercase()
         if (apiKey.isNotBlank()) {
@@ -649,7 +645,10 @@ object VinAndCatalogService {
                     val regDatum = extractJsonValue(json, "DatumPrvniRegistrace")
                     val rok = regDatum.take(4).toIntOrNull() ?: decodeYearFromVinChar(vin)
                     val stkDo = extractJsonValue(json, "PravidelnaTechnickaProhlidkaDo").take(10)
-                    val pneu = extractJsonValue(json, "NapravyPneuRafky").take(120)
+
+                    val rawBaseTires = extractJsonValue(json, "NapravyPneuRafky")
+                    val rawDalsiZaznamy = extractJsonValue(json, "DalsiZaznamy")
+                    val allTiresFormatted = parseAllTiresFromTp(rawBaseTires, rawDalsiZaznamy)
 
                     return VinDecodedData(
                         name = "$znacka $model ($rok)",
@@ -660,14 +659,13 @@ object VinAndCatalogService {
                         gearbox = prevodovka,
                         color = barva,
                         stkUntil = stkDo.ifBlank { "Neuvedeno" },
-                        tiresInfo = pneu.ifBlank { "205/55 R16, 225/45 R17, 235/45 R18" },
-                        sourceInfo = "Načteno z Registru silničních vozidel MDČR (dataovozidlech.cz)"
+                        tiresInfo = allTiresFormatted.ifBlank { "205/55 R16, 225/45 R17, 235/45 R18" },
+                        sourceInfo = "Načteno z Registru silničních vozidel MDČR (včetně alternativních pneu z TP)"
                     )
                 }
             }
         }
 
-        // Lokalni rozklicovani WMI + VDS + modeloveho roku podle struktury VIN
         val year = decodeYearFromVinChar(vin)
         val make = when {
             vin.startsWith("TMB") -> "Škoda"
@@ -692,14 +690,78 @@ object VinAndCatalogService {
             engineDesc = "2.0 TDI CR (1968 ccm)",
             powerKw = modelAndEngine.third,
             gearbox = "Automat DSG",
-            color = "Neuvedena (doplň API klíč MDČR pro TP data)",
+            color = "Neuvedena",
             stkUntil = "10.${year + 8}",
-            tiresInfo = if (year >= 2016) "215/55 R17, 235/45 R18" else "205/55 R16, 225/45 R17",
-            sourceInfo = "Rozklíčováno z VIN struktury (pro kompletní TP data lze v Nastavení vložit klíč z dataovozidlech.cz)"
+            tiresInfo = if (year >= 2016) "215/55 R17, 235/45 R18, 235/40 R19" else "205/55 R16, 225/45 R17, 225/40 R18",
+            sourceInfo = "Rozklíčováno z VIN struktury"
         )
     }
 
-    // Stazeni nazvu dilu z online katalogu skoda-dily.cz + lokalni katalog
+    // Vytahne a vycisti jak zakladni pneu z NapravyPneuRafky, tak vsechny alternativni pneu a rafky z DalsiZaznamy
+    private fun parseAllTiresFromTp(rawBase: String, rawNotes: String): String {
+        val uniqueItems = linkedSetOf<String>()
+
+        fun cleanChunk(s: String): String {
+            return s
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\r", "\n")
+                .replace("\\t", " ")
+                .replace("\\/", "/")
+                .replace("\\\"", "\"")
+                .trim()
+        }
+
+        val cleanedBase = cleanChunk(rawBase)
+        val cleanedNotes = cleanChunk(rawNotes)
+
+        // 1. Rozmery pneu + rafku ze zakladniho pole NapravyPneuRafky
+        cleanedBase.split("\n", ";").forEach { line ->
+            val trimmed = line
+                .replace(Regex("""^[1-4]\s*[:.-]\s*"""), "") // odstrani prefix napravy "1:" nebo "2:"
+                .trim(' ', '/', ';', ',', '-')
+                .replace(Regex("""\s+"""), " ")
+            if (trimmed.length >= 6 && trimmed.any { it.isDigit() }) {
+                uniqueItems.add(trimmed)
+            }
+        }
+
+        // 2. Vyhledani vsech rozmeru pneu (napr. 215/55 R17 94W + pripadny rafek 7Jx17 ET40) v DalsiZaznamy
+        val comboRegex = Regex(
+            """(\d{3}\s*/\s*\d{2,3}\s*Z?R\s*\d{2}\s*[0-9]{0,3}\s*[A-Z]{0,2}(?:\s*M\+S|\s*XL)?(?:\s*(?:NA RÁFKU|/|;|,|-|\s)\s*\d+(?:[.,]\d+)?\s*J\s*[xX]\s*\d{2}\s*(?:H2\s*)?(?:ET\s*-?\d+(?:[.,]\d+)?)?)?)""",
+            RegexOption.IGNORE_CASE
+        )
+        comboRegex.findAll(cleanedNotes).forEach { m ->
+            val found = m.value
+                .replace(Regex("""\s+"""), " ")
+                .replace("NA RÁFKU ", "")
+                .trim(' ', '/', ';', ',', '-')
+            if (found.length >= 7) {
+                // Zkontrolujeme, zda uz identicky rozmer v seznamu neni
+                val normFound = found.uppercase().replace(" ", "")
+                val alreadyPresent = uniqueItems.any { existing ->
+                    val normEx = existing.uppercase().replace(" ", "")
+                    normEx.contains(normFound) || normFound.contains(normEx)
+                }
+                if (!alreadyPresent) {
+                    uniqueItems.add(found)
+                } else {
+                    // Pokud novy nalez obsahuje i rafek/ET a stary byl kratsi, nahradime ho delsim
+                    val shorter = uniqueItems.find { existing ->
+                        val normEx = existing.uppercase().replace(" ", "")
+                        normFound.contains(normEx) && found.length > existing.length
+                    }
+                    if (shorter != null) {
+                        uniqueItems.remove(shorter)
+                        uniqueItems.add(found)
+                    }
+                }
+            }
+        }
+
+        return uniqueItems.joinToString(" • ")
+    }
+
     suspend fun fetchCatalogPartsForSubfolder(subfolder: SubfolderDef): List<String> {
         val resultSet = linkedSetOf<String>()
         GarageCatalog.extraCatalogPartsBySubfolder[subfolder.id]?.forEach { resultSet.add(it) }
@@ -748,10 +810,18 @@ object VinAndCatalogService {
         }
     }
 
+    // Bezpecne vytahne JSON hodnotu vcetne escapovanych uvozovek a novych radku
     private fun extractJsonValue(json: String, key: String): String {
-        val regex = Regex(""""$key"\s*:\s*(?:"([^"]*)"|([0-9.]+))""", RegexOption.IGNORE_CASE)
+        val regex = Regex(""""$key"\s*:\s*(?:"((?:\\.|[^"\\])*)"|([0-9.]+))""", RegexOption.IGNORE_CASE)
         val match = regex.find(json) ?: return ""
-        return (match.groupValues[1].ifBlank { match.groupValues[2] }).trim()
+        val raw = (match.groupValues[1].ifBlank { match.groupValues[2] }).trim()
+        return raw
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\r", "\n")
+            .replace("\\\"", "\"")
+            .replace("\\/", "/")
+            .trim()
     }
 }
 
