@@ -37,7 +37,8 @@ data class Vehicle(
     val tiresInfo: String,
     val currentMileageKm: Int,
     val records: List<ReplacementRecord> = emptyList(),
-    val customParts: List<PartItem> = emptyList()
+    val customParts: List<PartItem> = emptyList(),
+    val customIntervals: Map<String, Int> = emptyMap()
 )
 
 data class CategoryDef(
@@ -408,8 +409,12 @@ object GarageCatalog {
         list
     }
 
+    // Vrati vsechny dily vozidla s aplikovanymi vlastnimi intervaly pro dane auto
     fun allPartsForVehicle(vehicle: Vehicle): List<PartItem> {
-        return defaultParts + vehicle.customParts
+        return (defaultParts + vehicle.customParts).map { part ->
+            val customInt = vehicle.customIntervals[part.id]
+            if (customInt != null) part.copy(defaultIntervalKm = customInt) else part
+        }
     }
 
     fun defaultVehicles(): List<Vehicle> = listOf(
@@ -844,7 +849,6 @@ object GarageStorage {
         GaragePlatform.saveString(KEY_LAST_BACKUP_DATE, GaragePlatform.currentDateString())
     }
 
-    // Zkontroluje, zda od posledni zalohy na OneDrive uplynulo >= 7 dni, a pokud ano, automaticky ji provede
     fun checkAndRunWeeklyBackupIfDue(vehicles: List<Vehicle>): Boolean {
         if (!isWeeklyBackupEnabled()) return false
         val uri = loadOneDriveUri()
@@ -922,12 +926,15 @@ object GarageStorage {
                     esc(p.positionTag), p.defaultIntervalKm.toString(), esc(p.specHint)
                 ).joinToString("^")
             }
+            val intervals = v.customIntervals.entries.joinToString("~") { (k, km) ->
+                "${esc(k)}^$km"
+            }
             listOf(
                 esc(v.id), esc(v.name), esc(v.vin), esc(v.plate),
                 v.year.toString(), esc(v.engineCode), esc(v.engineDesc),
                 v.powerKw.toString(), esc(v.gearbox), esc(v.color),
                 esc(v.stkUntil), esc(v.tiresInfo), v.currentMileageKm.toString(),
-                recs, cust
+                recs, cust, intervals
             ).joinToString("|")
         }
     }
@@ -972,6 +979,16 @@ object GarageStorage {
                 }
             } else emptyList()
 
+            val intervals = if (cols.size >= 16 && cols[15].isNotBlank()) {
+                cols[15].split("~").mapNotNull { iStr ->
+                    val ic = iStr.split("^")
+                    if (ic.size >= 2) {
+                        val km = ic[1].toIntOrNull()
+                        if (km != null) unesc(ic[0]) to km else null
+                    } else null
+                }.toMap()
+            } else emptyMap()
+
             Vehicle(
                 id = unesc(cols[0]),
                 name = unesc(cols[1]),
@@ -987,7 +1004,8 @@ object GarageStorage {
                 tiresInfo = unesc(cols[11]),
                 currentMileageKm = cols[12].toIntOrNull() ?: 0,
                 records = recs,
-                customParts = cust
+                customParts = cust,
+                customIntervals = intervals
             )
         }
     }

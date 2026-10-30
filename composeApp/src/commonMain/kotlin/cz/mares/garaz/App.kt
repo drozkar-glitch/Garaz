@@ -102,6 +102,7 @@ fun App() {
 
     var partToMarkReplaced by remember { mutableStateOf<PartItem?>(null) }
     var partForHistoryDetail by remember { mutableStateOf<PartItem?>(null) }
+    var partForIntervalEdit by remember { mutableStateOf<PartItem?>(null) }
     var showEditVehicleDialog by remember { mutableStateOf(false) }
     var isAddingNewVehicle by remember { mutableStateOf(false) }
     var showQuickMileageDialog by remember { mutableStateOf(false) }
@@ -112,7 +113,6 @@ fun App() {
     var subfolderForCustomPart by remember { mutableStateOf<Pair<CategoryDef, SubfolderDef>?>(null) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
 
-    // Automaticka kontrola tydenni zalohy na Google Drive pri spusteni aplikace
     LaunchedEffect(Unit) {
         if (GarageStorage.checkAndRunWeeklyBackupIfDue(vehicles)) {
             statusBanner = "☁️ Týdenní záloha na Google Drive byla automaticky aktualizována."
@@ -131,6 +131,20 @@ fun App() {
         val cur = currentVehicle ?: return
         val updated = vehicles.map { if (it.id == cur.id) transform(it) else it }
         updateVehicles(updated)
+    }
+
+    fun savePartInterval(part: PartItem, newIntervalKm: Int) {
+        updateCurrentVehicle { v ->
+            val updatedMap = v.customIntervals.toMutableMap()
+            updatedMap[part.id] = newIntervalKm.coerceAtLeast(0)
+            val updatedCustomParts = v.customParts.map { cp ->
+                if (cp.id == part.id) cp.copy(defaultIntervalKm = newIntervalKm.coerceAtLeast(0)) else cp
+            }
+            v.copy(
+                customIntervals = updatedMap,
+                customParts = updatedCustomParts
+            )
+        }
     }
 
     val materialColors = if (useDark) {
@@ -384,7 +398,8 @@ fun App() {
                                     records = partRecords,
                                     showCategoryPath = true,
                                     onMarkReplaced = { partToMarkReplaced = part },
-                                    onShowHistory = { partForHistoryDetail = part }
+                                    onShowHistory = { partForHistoryDetail = part },
+                                    onEditInterval = { partForIntervalEdit = part }
                                 )
                             }
                         } else {
@@ -416,6 +431,7 @@ fun App() {
                                     },
                                     onMarkPartReplaced = { part -> partToMarkReplaced = part },
                                     onShowPartHistory = { part -> partForHistoryDetail = part },
+                                    onEditPartInterval = { part -> partForIntervalEdit = part },
                                     onFetchExtraParts = { sub -> subfolderForCatalogFetch = cat to sub },
                                     onAddCustomPart = { sub -> subfolderForCustomPart = cat to sub }
                                 )
@@ -427,16 +443,18 @@ fun App() {
                 }
             }
 
+            // 1. Dialog pro oznaceni dilu jako VYMENENO (vcetne nastaveni intervalu)
             val targetPart = partToMarkReplaced
             if (targetPart != null && currentVehicle != null) {
+                val latestPart = GarageCatalog.allPartsForVehicle(currentVehicle).find { it.id == targetPart.id } ?: targetPart
                 MarkPartReplacedDialog(
-                    part = targetPart,
+                    part = latestPart,
                     vehicle = currentVehicle,
                     onDismiss = { partToMarkReplaced = null },
-                    onConfirm = { km, date, brand, note ->
+                    onConfirm = { km, date, brand, note, intervalKm ->
                         val newRec = ReplacementRecord(
                             id = "rec_${Random.nextInt(100000, 999999)}",
-                            partId = targetPart.id,
+                            partId = latestPart.id,
                             date = date,
                             mileageKm = km,
                             brandOrSpec = brand,
@@ -444,30 +462,66 @@ fun App() {
                         )
                         updateCurrentVehicle { v ->
                             val updatedKm = maxOf(v.currentMileageKm, km)
+                            val updatedIntervals = v.customIntervals.toMutableMap()
+                            updatedIntervals[latestPart.id] = intervalKm.coerceAtLeast(0)
+                            val updatedCustomParts = v.customParts.map { cp ->
+                                if (cp.id == latestPart.id) cp.copy(defaultIntervalKm = intervalKm.coerceAtLeast(0)) else cp
+                            }
                             v.copy(
                                 currentMileageKm = updatedKm,
-                                records = listOf(newRec) + v.records
+                                records = listOf(newRec) + v.records,
+                                customIntervals = updatedIntervals,
+                                customParts = updatedCustomParts
                             )
                         }
-                        statusBanner = "✓ Označeno jako vyměněné: ${targetPart.name} (${formatKm(km)})"
+                        statusBanner = "✓ Označeno jako vyměněné: ${latestPart.name} (${formatKm(km)})"
                         partToMarkReplaced = null
                     }
                 )
             }
 
+            // 2. Dialog historie konkretniho dilu (vcetne upravy servisniho intervalu)
             val historyPart = partForHistoryDetail
             if (historyPart != null && currentVehicle != null) {
+                val latestPart = GarageCatalog.allPartsForVehicle(currentVehicle).find { it.id == historyPart.id } ?: historyPart
                 PartHistoryDialog(
-                    part = historyPart,
+                    part = latestPart,
                     vehicle = currentVehicle,
                     onDismiss = { partForHistoryDetail = null },
                     onAddAnother = {
                         partForHistoryDetail = null
-                        partToMarkReplaced = historyPart
+                        partToMarkReplaced = latestPart
+                    },
+                    onSaveInterval = { newIntervalKm ->
+                        savePartInterval(latestPart, newIntervalKm)
+                        statusBanner = if (newIntervalKm > 0) {
+                            "⏱ Interval pro „${latestPart.name}“ nastaven na ${formatKm(newIntervalKm)}."
+                        } else {
+                            "⏱ Hlídání intervalu pro „${latestPart.name}“ bylo vypnuto."
+                        }
                     },
                     onDeleteRecord = { recId ->
                         updateCurrentVehicle { v ->
                             v.copy(records = v.records.filterNot { it.id == recId })
+                        }
+                    }
+                )
+            }
+
+            // 3. Samostatny rychly dialog pro nastaveni intervalu klepnutim na interval u dilu
+            val intervalPart = partForIntervalEdit
+            if (intervalPart != null && currentVehicle != null) {
+                val latestPart = GarageCatalog.allPartsForVehicle(currentVehicle).find { it.id == intervalPart.id } ?: intervalPart
+                EditPartIntervalDialog(
+                    part = latestPart,
+                    onDismiss = { partForIntervalEdit = null },
+                    onSave = { newIntervalKm ->
+                        savePartInterval(latestPart, newIntervalKm)
+                        partForIntervalEdit = null
+                        statusBanner = if (newIntervalKm > 0) {
+                            "⏱ Interval pro „${latestPart.name}“ nastaven na ${formatKm(newIntervalKm)}."
+                        } else {
+                            "⏱ Hlídání intervalu pro „${latestPart.name}“ bylo vypnuto."
                         }
                     }
                 )
@@ -842,6 +896,7 @@ private fun CategoryTreeCard(
     onToggleSubfolder: (String) -> Unit,
     onMarkPartReplaced: (PartItem) -> Unit,
     onShowPartHistory: (PartItem) -> Unit,
+    onEditPartInterval: (PartItem) -> Unit,
     onFetchExtraParts: (SubfolderDef) -> Unit,
     onAddCustomPart: (SubfolderDef) -> Unit
 ) {
@@ -976,7 +1031,8 @@ private fun CategoryTreeCard(
                                         records = partRecords,
                                         showCategoryPath = false,
                                         onMarkReplaced = { onMarkPartReplaced(part) },
-                                        onShowHistory = { onShowPartHistory(part) }
+                                        onShowHistory = { onShowPartHistory(part) },
+                                        onEditInterval = { onEditPartInterval(part) }
                                     )
                                 }
 
@@ -1040,7 +1096,8 @@ private fun PartRowCard(
     records: List<ReplacementRecord>,
     showCategoryPath: Boolean,
     onMarkReplaced: () -> Unit,
-    onShowHistory: () -> Unit
+    onShowHistory: () -> Unit,
+    onEditInterval: () -> Unit
 ) {
     val p = LocalGaragePalette.current
     val lastRec = records.firstOrNull()
@@ -1106,11 +1163,25 @@ private fun PartRowCard(
                 )
             }
 
-            if (part.specHint.isNotBlank() || part.defaultIntervalKm > 0) {
-                val intervalTxt = if (part.defaultIntervalKm > 0) "Interval: ${formatKm(part.defaultIntervalKm)}" else ""
-                val combined = listOf(part.specHint, intervalTxt).filter { it.isNotBlank() }.joinToString(" • ")
-                Text(combined, fontSize = 11.sp, lineHeight = 14.sp, color = p.textMuted)
+            if (part.specHint.isNotBlank()) {
+                Text(part.specHint, fontSize = 11.sp, lineHeight = 14.sp, color = p.textMuted)
             }
+
+            // Klikatelny stitek pro nastaveni / zmenu servisniho intervalu
+            Text(
+                text = if (part.defaultIntervalKm > 0) {
+                    "⏱ Interval: ${formatKm(part.defaultIntervalKm)} (upravit ✎)"
+                } else {
+                    "⏱ + Nastavit interval (km)"
+                },
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = if (part.defaultIntervalKm > 0) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (part.defaultIntervalKm > 0) p.accent else p.textMuted,
+                modifier = Modifier
+                    .clickable { onEditInterval() }
+                    .padding(vertical = 2.dp)
+            )
 
             if (lastRec != null) {
                 Spacer(Modifier.height(2.dp))
@@ -1177,11 +1248,14 @@ private fun MarkPartReplacedDialog(
     part: PartItem,
     vehicle: Vehicle,
     onDismiss: () -> Unit,
-    onConfirm: (km: Int, date: String, brand: String, note: String) -> Unit
+    onConfirm: (km: Int, date: String, brand: String, note: String, intervalKm: Int) -> Unit
 ) {
     val p = LocalGaragePalette.current
     var kmText by remember { mutableStateOf(vehicle.currentMileageKm.toString()) }
     var dateText by remember { mutableStateOf(GaragePlatform.currentDateString()) }
+    var intervalText by remember {
+        mutableStateOf(if (part.defaultIntervalKm > 0) part.defaultIntervalKm.toString() else "")
+    }
     var brandText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
 
@@ -1212,13 +1286,23 @@ private fun MarkPartReplacedDialog(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
-                value = dateText,
-                onValueChange = { dateText = it },
-                label = { Text("Datum výměny (DD.MM.RRRR)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = dateText,
+                    onValueChange = { dateText = it },
+                    label = { Text("Datum výměny") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = intervalText,
+                    onValueChange = { intervalText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Interval (km, 0=vyp)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
             OutlinedTextField(
                 value = brandText,
@@ -1246,11 +1330,85 @@ private fun MarkPartReplacedDialog(
                 Button(
                     onClick = {
                         val km = kmText.toIntOrNull() ?: vehicle.currentMileageKm
-                        onConfirm(km, dateText.ifBlank { GaragePlatform.currentDateString() }, brandText.trim(), noteText.trim())
+                        val intervalKm = intervalText.toIntOrNull() ?: 0
+                        onConfirm(
+                            km,
+                            dateText.ifBlank { GaragePlatform.currentDateString() },
+                            brandText.trim(),
+                            noteText.trim(),
+                            intervalKm
+                        )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = p.greenOk)
                 ) {
                     Text("✓ Uložit výměnu", color = p.onAccent, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditPartIntervalDialog(
+    part: PartItem,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit
+) {
+    val p = LocalGaragePalette.current
+    var intervalText by remember {
+        mutableStateOf(if (part.defaultIntervalKm > 0) part.defaultIntervalKm.toString() else "")
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(p.card)
+                .border(1.dp, p.accent, RoundedCornerShape(16.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("⏱ Nastavit servisní interval", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.accent)
+            Text(part.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
+            Text(
+                "Zadej po kolika kilometrech se má tento díl měnit (nebo zadej 0 pro vypnutí hlídání intervalu):",
+                fontSize = 11.sp,
+                color = p.textMuted
+            )
+
+            OutlinedTextField(
+                value = intervalText,
+                onValueChange = { intervalText = it.filter { ch -> ch.isDigit() } },
+                label = { Text("Servisní interval v km (např. 15000, 60000, 180000)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Rychle predvolby pro nejpouzivanejsi intervaly
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(10000, 15000, 30000, 60000, 120000, 150000, 180000, 0).forEach { preset ->
+                    val label = if (preset == 0) "Vypnout (0)" else "${preset / 1000} tis."
+                    FilterChipBtn(label, intervalText == preset.toString()) {
+                        intervalText = preset.toString()
+                    }
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Zrušit", color = p.textMuted) }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { onSave(intervalText.toIntOrNull() ?: 0) },
+                    colors = ButtonDefaults.buttonColors(containerColor = p.accent)
+                ) {
+                    Text("Uložit interval", color = p.onAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1263,10 +1421,14 @@ private fun PartHistoryDialog(
     vehicle: Vehicle,
     onDismiss: () -> Unit,
     onAddAnother: () -> Unit,
+    onSaveInterval: (Int) -> Unit,
     onDeleteRecord: (String) -> Unit
 ) {
     val p = LocalGaragePalette.current
     val records = vehicle.records.filter { it.partId == part.id }.sortedByDescending { it.mileageKm }
+    var intervalText by remember(part.defaultIntervalKm) {
+        mutableStateOf(if (part.defaultIntervalKm > 0) part.defaultIntervalKm.toString() else "")
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1279,6 +1441,29 @@ private fun PartHistoryDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(part.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = p.textPrimary)
+
+            // Uprava servisniho intervalu primo v detailu dilu
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = intervalText,
+                    onValueChange = { intervalText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Servisní interval (km, 0 = bez intervalu)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = { onSaveInterval(intervalText.toIntOrNull() ?: 0) },
+                    colors = ButtonDefaults.buttonColors(containerColor = p.accent)
+                ) {
+                    Text("Uložit km", color = p.onAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+
             Text("Historie výměn tohoto dílu (${records.size}x)", fontSize = 12.sp, color = p.accent)
 
             if (records.isEmpty()) {
@@ -1287,7 +1472,7 @@ private fun PartHistoryDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 300.dp)
+                        .heightIn(max = 260.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -2049,7 +2234,6 @@ private fun SettingsAndBackupDialog(
 
             HorizontalDivider(color = p.border)
 
-            // Sekce Google Drive automaticke tydenni zalohy
             Text("☁️ Automatická týdenní záloha (Google Drive / Cloud):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
             Row(
                 modifier = Modifier
