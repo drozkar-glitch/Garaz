@@ -139,8 +139,8 @@ fun App() {
     var selectedVehicleId by remember { mutableStateOf(vehicles.firstOrNull()?.id ?: "") }
     val currentVehicle = vehicles.find { it.id == selectedVehicleId } ?: vehicles.firstOrNull()
 
-    var expandedCategoryIds by remember { mutableStateOf(setOf("motor")) }
-    var expandedSubfolderIds by remember { mutableStateOf(setOf("m_naplne", "m_filtry")) }
+    var expandedCategoryIds by remember { mutableStateOf(emptySet<String>()) }
+    var expandedSubfolderIds by remember { mutableStateOf(emptySet<String>()) }
 
     var searchQuery by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(0) }
@@ -385,7 +385,6 @@ fun App() {
                             )
                         }
 
-                        // Vystrazny panel primo na hlavni obrazovce, pokud se blizi vymena nebo je interval prekroceny
                         if (currentVehicleAlerts.isNotEmpty()) {
                             item {
                                 ServiceAlertsBannerCard(
