@@ -160,7 +160,7 @@ object GarageCatalog {
             subId: String,
             subName: String,
             id: String,
-            name: String,
+            name: String = id,
             pos: String = "",
             intervalKm: Int = 0,
             spec: String = ""
@@ -411,7 +411,6 @@ object GarageCatalog {
         list
     }
 
-    // Vrati vsechny dily vozidla s aplikovanymi vlastnimi intervaly pro dane auto
     fun allPartsForVehicle(vehicle: Vehicle): List<PartItem> {
         return (defaultParts + vehicle.customParts).map { part ->
             val customInt = vehicle.customIntervals[part.id]
@@ -777,7 +776,6 @@ object VinAndCatalogService {
         }
     }
 
-    // Rozklicovani modelu a typickeho motoru podle znacky a znaku ve VIN (pro pripad offline rezimu)
     private fun decodeModelAndEngineFromVin(vin: String, make: String, year: Int): Triple<String, String, Int> {
         val code68 = if (vin.length >= 8) vin.substring(6, 8) else ""
         val bodyPart = if (vin.length >= 9) vin.substring(3, 9) else ""
