@@ -1,5 +1,7 @@
 package cz.mares.garaz
 
+import kotlin.math.roundToInt
+
 data class ReplacementRecord(
     val id: String,
     val partId: String,
@@ -158,7 +160,7 @@ object GarageCatalog {
             subId: String,
             subName: String,
             id: String,
-            name: String,
+            name: String = id,
             pos: String = "",
             intervalKm: Int = 0,
             spec: String = ""
@@ -409,7 +411,6 @@ object GarageCatalog {
         list
     }
 
-    // Vrati vsechny dily vozidla s aplikovanymi vlastnimi intervaly pro dane auto
     fun allPartsForVehicle(vehicle: Vehicle): List<PartItem> {
         return (defaultParts + vehicle.customParts).map { part ->
             val customInt = vehicle.customIntervals[part.id]
@@ -633,33 +634,58 @@ object VinAndCatalogService {
 
     suspend fun decodeVin(vinInput: String, apiKey: String): VinDecodedData {
         val vin = vinInput.trim().uppercase()
+        val fallbackYear = decodeYearFromVinChar(vin)
+        val fallbackMake = decodeMakeFromVin(vin)
+        val fallbackModelInfo = decodeModelAndEngineFromVin(vin, fallbackMake, fallbackYear)
+
         if (apiKey.isNotBlank()) {
             val url = "https://api.dataovozidlech.cz/api/vehicletechnicaldata/v2?vin=$vin"
             val res = GaragePlatform.httpGet(url, mapOf("api_key" to apiKey.trim(), "Accept" to "application/json"))
             if (res.isSuccess) {
                 val json = res.getOrNull().orEmpty()
-                if (json.contains("TovarniZnacka") || json.contains("ObchodniOzn")) {
-                    val znacka = extractJsonValue(json, "TovarniZnacka").ifBlank { "Škoda" }
-                    val model = extractJsonValue(json, "ObchodniOzn").ifBlank { "Superb" }
-                    val typMotoru = extractJsonValue(json, "MotorTyp").ifBlank { "2.0 TDI" }
-                    val vykonStr = extractJsonValue(json, "MotorMaxVykon")
-                    val vykonKw = vykonStr.takeWhile { it.isDigit() }.toIntOrNull() ?: 110
-                    val objem = extractJsonValue(json, "MotorZdvihObjem").takeWhile { it.isDigit() }
-                    val prevodovka = extractJsonValue(json, "PrevodovkaDruh").ifBlank { "DSG / Manuál" }
-                    val barva = extractJsonValue(json, "Barva").ifBlank { "Neuvedena" }
+                if (json.contains("TovarniZnacka") || json.contains("ObchodniOznaceni") || json.contains("MotorTyp")) {
                     val regDatum = extractJsonValue(json, "DatumPrvniRegistrace")
-                    val rok = regDatum.take(4).toIntOrNull() ?: decodeYearFromVinChar(vin)
+                    val rok = regDatum.take(4).toIntOrNull() ?: fallbackYear
+
+                    val rawZnacka = extractJsonValue(json, "TovarniZnacka").ifBlank { fallbackMake }
+                    val znacka = formatBrandName(rawZnacka)
+
+                    val rawModel = extractJsonValue(json, "ObchodniOznaceni")
+                        .ifBlank { extractJsonValue(json, "ObchodniOzn") }
+                        .ifBlank { extractJsonValue(json, "Typ") }
+                        .ifBlank { fallbackModelInfo.first }
+
+                    val cleanModel = cleanModelName(znacka, rawModel)
+
+                    val typMotoru = extractJsonValue(json, "MotorTyp")
+                        .ifBlank { fallbackModelInfo.second }
+                    val vykonStr = extractJsonValue(json, "MotorMaxVykon")
+                    val vykonKw = vykonStr.takeWhile { it.isDigit() }.toIntOrNull() ?: fallbackModelInfo.third
+                    val objemStr = extractJsonValue(json, "MotorZdvihObjem").takeWhile { it.isDigit() }
+                    val palivo = extractJsonValue(json, "Palivo")
+                    val motorPopis = formatEngineDescription(typMotoru, objemStr, palivo)
+
+                    val prevodovka = extractJsonValue(json, "PrevodovkaDruh").ifBlank { "Automat / Manuál" }
+                    val barva = extractJsonValue(json, "Barva")
+                        .ifBlank { extractJsonValue(json, "VozidloKaroserieBarva") }
+                        .ifBlank { "Neuvedena" }
                     val stkDo = extractJsonValue(json, "PravidelnaTechnickaProhlidkaDo").take(10)
 
                     val rawBaseTires = extractJsonValue(json, "NapravyPneuRafky")
                     val rawDalsiZaznamy = extractJsonValue(json, "DalsiZaznamy")
                     val allTiresFormatted = parseAllTiresFromTp(rawBaseTires, rawDalsiZaznamy)
 
+                    val fullTitle = if (cleanModel.isNotBlank()) {
+                        "$znacka $cleanModel ($rok)"
+                    } else {
+                        "$znacka ($rok)"
+                    }
+
                     return VinDecodedData(
-                        name = "$znacka $model ($rok)",
+                        name = fullTitle,
                         year = rok,
                         engineCode = typMotoru,
-                        engineDesc = if (objem.isNotBlank()) "$typMotoru (${objem} ccm)" else typMotoru,
+                        engineDesc = motorPopis,
                         powerKw = vykonKw,
                         gearbox = prevodovka,
                         color = barva,
@@ -671,35 +697,154 @@ object VinAndCatalogService {
             }
         }
 
-        val year = decodeYearFromVinChar(vin)
-        val make = when {
-            vin.startsWith("TMB") -> "Škoda"
-            vin.startsWith("WVW") || vin.startsWith("WVG") -> "Volkswagen"
-            vin.startsWith("WAU") -> "Audi"
-            vin.startsWith("VSS") -> "Seat"
-            else -> "Vozidlo"
-        }
-        val modelAndEngine = when {
-            vin.length >= 8 && vin.substring(6, 8) == "NP" -> Triple("Superb III", "DFGA / CRLB", 110)
-            vin.length >= 8 && vin.substring(6, 8) == "3T" -> Triple("Superb II", "CFFB / CFGB", 103)
-            vin.length >= 8 && vin.substring(6, 8) == "NE" -> Triple("Octavia III", "CRLB / CKFC", 110)
-            vin.length >= 8 && vin.substring(6, 8) == "1Z" -> Triple("Octavia II", "CFHC / BKD", 103)
-            vin.length >= 8 && vin.substring(6, 8) == "NS" -> Triple("Kodiaq", "DFGA / DFHA", 140)
-            else -> if (year >= 2016) Triple("Superb III", "DFGA", 110) else Triple("Superb II", "CFFB", 103)
+        val fullFallbackTitle = if (fallbackModelInfo.first.isNotBlank()) {
+            "$fallbackMake ${fallbackModelInfo.first} ($fallbackYear)"
+        } else {
+            "$fallbackMake ($fallbackYear)"
         }
 
         return VinDecodedData(
-            name = "$make ${modelAndEngine.first} ($year)",
-            year = year,
-            engineCode = modelAndEngine.second,
-            engineDesc = "2.0 TDI CR (1968 ccm)",
-            powerKw = modelAndEngine.third,
-            gearbox = "Automat DSG",
+            name = fullFallbackTitle,
+            year = fallbackYear,
+            engineCode = fallbackModelInfo.second,
+            engineDesc = "TDI / TSI",
+            powerKw = fallbackModelInfo.third,
+            gearbox = "Automat / Manuál",
             color = "Neuvedena",
-            stkUntil = "10.${year + 8}",
-            tiresInfo = if (year >= 2016) "215/55 R17, 235/45 R18, 235/40 R19" else "205/55 R16, 225/45 R17, 225/40 R18",
-            sourceInfo = "Rozklíčováno z VIN struktury"
+            stkUntil = "10.${fallbackYear + 8}",
+            tiresInfo = if (fallbackYear >= 2016) "215/55 R17, 235/45 R18, 235/40 R19" else "205/55 R16, 225/45 R17, 225/40 R18",
+            sourceInfo = "Rozklíčováno z VIN struktury (vozidlo nebylo nalezeno v online registru MDČR)"
         )
+    }
+
+    private fun formatBrandName(raw: String): String {
+        val u = raw.trim().uppercase()
+        return when {
+            u.contains("ŠKODA") || u.contains("SKODA") -> "Škoda"
+            u.contains("VOLKSWAGEN") || u == "VW" -> "Volkswagen"
+            u.contains("AUDI") -> "Audi"
+            u.contains("SEAT") -> "Seat"
+            u.contains("CUPRA") -> "Cupra"
+            u.contains("BMW") -> "BMW"
+            u.contains("MERCEDES") -> "Mercedes-Benz"
+            u.contains("FORD") -> "Ford"
+            raw.isNotBlank() -> raw.trim().lowercase().replaceFirstChar { it.uppercase() }
+            else -> "Vozidlo"
+        }
+    }
+
+    private fun cleanModelName(brand: String, rawModel: String): String {
+        var m = rawModel.trim()
+        if (m.uppercase().startsWith(brand.uppercase())) {
+            m = m.substring(brand.length).trim()
+        }
+        return m
+    }
+
+    private fun formatEngineDescription(engineCode: String, displacementCcm: String, fuelRaw: String): String {
+        val ccm = displacementCcm.toIntOrNull()
+        val litersStr = if (ccm != null && ccm > 500) {
+            val tenths = (ccm / 100.0).roundToInt()
+            "${tenths / 10}.${tenths % 10}"
+        } else ""
+
+        val fUp = fuelRaw.uppercase()
+        val fuelLabel = when {
+            fUp.contains("NM") || fUp.contains("NAFTA") || fUp.contains("DIESEL") -> "TDI"
+            fUp.contains("BA") || fUp.contains("BENZ") -> "TSI / TFSI"
+            fUp.contains("EL") -> "Elektro"
+            fUp.contains("CNG") -> "G-TEC / CNG"
+            fUp.contains("LPG") -> "LPG"
+            else -> ""
+        }
+
+        val base = listOf(litersStr, fuelLabel).filter { it.isNotBlank() }.joinToString(" ")
+        return when {
+            base.isNotBlank() && ccm != null -> "$base ($ccm ccm)"
+            ccm != null -> "$engineCode ($ccm ccm)"
+            else -> engineCode
+        }
+    }
+
+    private fun decodeMakeFromVin(vin: String): String {
+        return when {
+            vin.startsWith("TMB") -> "Škoda"
+            vin.startsWith("WAU") || vin.startsWith("WUA") || vin.startsWith("TRU") -> "Audi"
+            vin.startsWith("WVW") || vin.startsWith("WVG") || vin.startsWith("WV1") || vin.startsWith("WV2") || vin.startsWith("3VW") -> "Volkswagen"
+            vin.startsWith("VSS") -> "Seat"
+            else -> "Vozidlo"
+        }
+    }
+
+    private fun decodeModelAndEngineFromVin(vin: String, make: String, year: Int): Triple<String, String, Int> {
+        val code68 = if (vin.length >= 8) vin.substring(6, 8) else ""
+        val bodyPart = if (vin.length >= 9) vin.substring(3, 9) else ""
+
+        return when (make) {
+            "Audi" -> {
+                val audiModel = when {
+                    code68 in listOf("8P", "8V", "8Y") || bodyPart.contains("8V") || bodyPart.contains("8P") -> "A3"
+                    code68 in listOf("8E", "8K", "8W", "F4") || bodyPart.contains("8K") || bodyPart.contains("8W") || bodyPart.contains("F4") -> "A4"
+                    code68 in listOf("8T", "8F", "F5") || bodyPart.contains("F5") || bodyPart.contains("8T") -> "A5"
+                    code68 in listOf("4B", "4F", "4G", "4A", "F2") || bodyPart.contains("4G") || bodyPart.contains("4F") || bodyPart.contains("4A") || bodyPart.contains("F2") -> "A6"
+                    code68 in listOf("4K") || bodyPart.contains("4K") -> "A7"
+                    code68 in listOf("4E", "4H", "4N") || bodyPart.contains("4H") || bodyPart.contains("4N") -> "A8"
+                    code68 in listOf("8U", "F3") || bodyPart.contains("8U") || bodyPart.contains("F3") -> "Q3"
+                    code68 in listOf("8R", "FY") || bodyPart.contains("8R") || bodyPart.contains("FY") -> "Q5"
+                    code68 in listOf("4L", "4M") || bodyPart.contains("4L") || bodyPart.contains("4M") -> "Q7"
+                    code68 in listOf("F8") || bodyPart.contains("F8") -> "Q8"
+                    code68 in listOf("8J", "FV") -> "TT"
+                    else -> "A4 / A6"
+                }
+                Triple(audiModel, "TDI / TFSI", 140)
+            }
+            "Volkswagen" -> {
+                val vwModel = when {
+                    code68 in listOf("3C", "3B", "3G", "CB") || bodyPart.contains("3C") || bodyPart.contains("3G") -> "Passat"
+                    code68 in listOf("1J", "1K", "5K", "AU", "CD", "BV") || bodyPart.contains("AU") || bodyPart.contains("1K") -> "Golf"
+                    code68 in listOf("5N", "AD", "AX") || bodyPart.contains("5N") || bodyPart.contains("AD") -> "Tiguan"
+                    code68 in listOf("1T", "5T") || bodyPart.contains("1T") -> "Touran"
+                    code68 in listOf("7L", "7P", "CR") || bodyPart.contains("7P") || bodyPart.contains("CR") -> "Touareg"
+                    code68 in listOf("3H") || bodyPart.contains("3H") -> "Arteon"
+                    code68 in listOf("2K", "SA", "SB") || bodyPart.contains("2K") -> "Caddy"
+                    code68 in listOf("7H", "7J", "7E", "ST") || bodyPart.contains("7H") -> "Transporter / Multivan"
+                    code68 in listOf("6R", "6C", "AW") -> "Polo"
+                    code68 in listOf("7M", "7N") -> "Sharan"
+                    else -> "Passat / Golf"
+                }
+                Triple(vwModel, "2.0 TDI / TSI", 110)
+            }
+            "Škoda" -> {
+                when (code68) {
+                    "NP", "NZ" -> Triple("Superb III", "DFGA / CRLB", 110)
+                    "3T" -> Triple("Superb II", "CFFB / CFGB", 103)
+                    "3U" -> Triple("Superb I", "AWX / BSS", 96)
+                    "NE" -> Triple("Octavia III", "CRLB / CKFC", 110)
+                    "NX" -> Triple("Octavia IV", "DTTC / DSTB", 110)
+                    "1Z" -> Triple("Octavia II", "CFHC / BKD", 103)
+                    "1U" -> Triple("Octavia I", "ALH / ASV", 66)
+                    "NS" -> Triple("Kodiaq", "DFGA / DFHA", 140)
+                    "NU" -> Triple("Karoq", "DFFA / DFGA", 110)
+                    "NW" -> Triple("Scala / Kamiq", "DGTA / DXDB", 85)
+                    "NJ", "PJ", "5J" -> Triple("Fabia", "CHZB / CAYA", 70)
+                    "5L" -> Triple("Yeti", "CFHC / CBDB", 103)
+                    "NH" -> Triple("Rapid", "CAYB / CBZB", 77)
+                    else -> if (year >= 2015) Triple("Superb III", "DFGA", 110) else Triple("Superb II", "CFFB", 103)
+                }
+            }
+            "Seat" -> {
+                val seatModel = when (code68) {
+                    "5F", "KL", "1P" -> "Leon"
+                    "KH" -> "Ateca"
+                    "KN" -> "Tarraco"
+                    "6J", "KJ" -> "Ibiza"
+                    "7V", "7N" -> "Alhambra"
+                    else -> "Leon / Ateca"
+                }
+                Triple(seatModel, "2.0 TDI / TSI", 110)
+            }
+            else -> Triple("Vozidlo", "Motor", 110)
+        }
     }
 
     private fun parseAllTiresFromTp(rawBase: String, rawNotes: String): String {
