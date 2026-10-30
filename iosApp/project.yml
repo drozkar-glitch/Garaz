@@ -1,0 +1,41 @@
+# XcodeGen specifikace pro iOS aplikaci Garaz
+name: iosApp
+options:
+  bundleIdPrefix: cz.mares
+  deploymentTarget:
+    iOS: "15.0"
+
+settings:
+  base:
+    PRODUCT_NAME: Garaz
+    PRODUCT_BUNDLE_IDENTIFIER: cz.mares.garaz
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "101"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+     SWIFT_ENABLE_EXPLICIT_MODULES: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    OTHER_LDFLAGS: "$(inherited) -ObjC -framework ComposeApp -lsqlite3"
+    FRAMEWORK_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/../composeApp/build/bin/iosArm64/releaseFramework"
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+      properties:
+        CFBundleDisplayName: "Garáž"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - armv7
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
